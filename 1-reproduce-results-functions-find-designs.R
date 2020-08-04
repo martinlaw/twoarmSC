@@ -1,0 +1,1288 @@
+####
+#### These functions are used to run the code that finds the designs used.
+#### The main function, used to find designs, is findSCdes.
+####
+   
+rmDominatedDesigns <- function(df, essh0="EssH0", essh1="Ess", n="n"){
+    discard <- rep(NA, nrow(df))
+    if("tbl_df" %in% class(df)){
+        essh0.vec <- df[[essh0]]
+        essh1.vec <- df[[essh1]]
+        n.vec <- df[[n]]     
+      for(i in 1:nrow(df)){
+        discard[i] <-  any(essh0.vec[i] > essh0.vec & essh1.vec[i] > essh1.vec & n.vec[i] >= n.vec)
+      }
+    } else {
+        essh0.vec <- df[, essh0]
+        essh1.vec <- df[, essh1]
+        n.vec <- df[, n]
+        for(i in 1:nrow(df)){
+          discard[i] <- any(essh0.vec[i] > essh0.vec & essh1.vec[i] > essh1.vec & n.vec[i] >= n.vec)
+        }
+      }
+    newdf <- df[discard==FALSE,,drop=FALSE]
+    newdf
+}
+
+
+find2armBlockOCs <- function(n,r, Bsize, mat, theta0, theta1, power, alpha, pat.cols, prob.vec, prob.vec.p0, blank.mat, zero.mat){
+######################## UPDATE CP MATRIX USING THETA0/1 VALUES:
+for(i in (n+r+1):1){  
+  for(j in pat.cols){  # Only look every Bsize patients (no need to look at final col)
+    if(i-1<=j){ # Condition: Sm<=m
+      newcp <- sum(prob.vec*mat[i:(i+Bsize), j+Bsize])
+      if(newcp > theta1) mat[i,j] <- 1
+      if(newcp < theta0) mat[i,j] <- 0
+      if(newcp <= theta1 & newcp >= theta0) mat[i,j] <- newcp
+    } 
+  }
+}
+
+
+###### STOP if design is pointless, i.e either failure or success is not possible:
+
+
+# IF DESIGN GUARANTEES FAILURE (==0) or SUCCESS (==2) at n=C:
+first.cohort <- sum(mat[,Bsize], na.rm = T)
+
+if(first.cohort==Bsize+1){
+  return(c(n, r, Bsize, 1, 1,  NA, NA, theta0, theta1, NA))
+}
+
+if(first.cohort==0){
+  return(c(n, r, Bsize, 0, 0,  NA, NA, theta0, theta1, NA))
+}
+
+
+
+
+########################### FIND PROB. OF REACHING EACH POINT:
+################# START WITH AN INDICATOR MATRIX OF NON-TERMINAL POINTS:
+
+tp.mat <- blank.mat
+tp.mat[which(mat==0 | mat==1)] <- 0
+tp.mat[which(mat>0 & mat<1)] <- 1
+
+
+############ CREATE MATRIX OF "POSSIBLE POINTS" -- IE, LIKE MATRIX OF NON-TERMINAL POINTS ***PLUS*** THE TERMINAL POINTS:
+##### THIS WILL BE USED AS AN INDICATOR MATRIX FOR WHICH POINTS TO CALCULATE THE PROB'Y OF REACHING.
+
+# Start with non-terminal points and add the terminal points 
+poss.mat <- tp.mat
+poss.mat[1:(Bsize+1), Bsize] <- 1 # It is of course possible to reach 0,1,...Bsize after Bsize patients. This line is included in case CP=0 or CP=1 at first check (i.e. m=Bsize)
+
+
+# Failures first:
+fail.mat <- zero.mat
+
+rows.with.cp0 <- which(apply(mat, 1, function(x) {any(x==0, na.rm = T)}))
+fail.n <- apply(mat[rows.with.cp0,], 1, which.min)
+
+for(i in 1:length(fail.n)){
+  poss.mat[names(fail.n)[i],fail.n[i]] <- 1
+  fail.mat[names(fail.n)[i],fail.n[i]] <- 1
+}
+
+# Now successes: what are the successful terminal points?
+# Points with mat[i,j]==1 AND (0>mat[i,j-2]>1 OR 0>mat[i-1,j-2]>1 OR 0>mat[i-2,j-2]>1)
+success.mat <- zero.mat
+rows.with.cp1 <- which(apply(mat, 1, function(x) {any(x==1, na.rm = T)}))
+
+# browser()
+
+
+for(i in rows.with.cp1){
+  for(j in seq(Bsize, 2*n, by=Bsize)){
+    if(i-1<=j & mat[i,j]==1 & (j==Bsize | any(tp.mat[i:max(1,(i-Bsize)), j-Bsize]==1, na.rm=TRUE))){ # max() condition to take care of cases where 
+        # Conditions ensure CP=1 and that it is possible to actually reach the point (tp.mat==1 indicates non terminal point)
+        poss.mat[i, j] <- 1
+        success.mat[i,j] <- 1
+    }
+  }
+}
+
+
+######################## PROBABILITY OF REACHING EACH POINT
+############################## FIRSTLY, UNDER PT=PT
+
+final.probs.mat <- poss.mat
+
+# First n=Bsize rows (0,1,... Bsize-1) are special cases:
+# fill in first column:
+final.probs.mat[1:(Bsize+1), Bsize] <- prob.vec
+
+
+for(i in 1:Bsize){
+  row.index <- which(poss.mat[i,]==1)[-1] # First entry (ie first column) has been inputted already, directly above, hence [-1]
+  for(j in row.index){
+    final.probs.mat[i, j] <- sum(prob.vec[1:i]*final.probs.mat[i:1, j-Bsize]*tp.mat[i:1, j-Bsize])
+  }
+}
+
+
+#if(n==16 & r==8) browser()
+
+# For the remaining rows:
+for(i in (Bsize+1):nrow(final.probs.mat)){ # Skip first Bsize rows; they have been taken care of above.
+  for(j in seq(2*Bsize, 2*n, by=Bsize)){ # skip first column of patients (n=2) -- again, they have been taken care of above.
+    if(i-1<=j & poss.mat[i,j]==1){
+      final.probs.mat[i,j] <- sum(prob.vec*final.probs.mat[i:(i-Bsize), j-Bsize]*tp.mat[i:(i-Bsize), j-Bsize], na.rm = TRUE)
+    } 
+  }
+}
+
+
+# IMPORTANT: end early if pwr < power.
+# Note 2: Could comment this out to ensure that the final test in undertaken for all runs, not just feasible ones.
+prob.success <- final.probs.mat[success.mat==1]
+pwr <- sum(prob.success)
+
+if(pwr < power) # | pwr < power+tol )
+{
+  return(c(n, r, Bsize, NA, pwr,  NA, NA, theta0, theta1, NA))
+}
+
+
+############################## SECONDLY, UNDER PT=PC
+
+final.probs.mat.p0 <- poss.mat
+
+# First n=Bsize rows (0,1,... Bsize-1) are special cases:
+# fill in first column:
+final.probs.mat.p0[1:(Bsize+1), Bsize] <- prob.vec.p0
+
+for(i in 1:Bsize){
+  row.index <- which(poss.mat[i,]==1)[-1] # First entry (ie first column) has been inputted already, directly above, hence [-1]
+  for(j in row.index){
+    final.probs.mat.p0[i, j] <- sum(prob.vec.p0[1:i]*final.probs.mat.p0[i:1, j-Bsize]*tp.mat[i:1, j-Bsize])
+  }
+}
+
+# For the remaining rows:
+for(i in (Bsize+1):nrow(final.probs.mat.p0)){ # Skip first Bsize rows; they have been taken care of above.
+  for(j in seq(2*Bsize, 2*n, by=Bsize)){ # skip first column of patients (n=2) -- again, they have beene taken care of above.
+    if(i-1<=j & poss.mat[i,j]==1){
+      final.probs.mat.p0[i,j] <- sum(prob.vec.p0*final.probs.mat.p0[i:(i-Bsize), j-Bsize]*tp.mat[i:(i-Bsize), j-Bsize], na.rm = TRUE)
+    } 
+  }
+}
+
+
+prob.success.p0 <- final.probs.mat.p0[success.mat==1]
+typeIerr <- sum(prob.success.p0)
+
+# IMPORTANT: end early if type I error > alpha
+# Note 2: Could comment this out to ensure that the final test in undertaken for all runs, not just feasible ones.
+if( typeIerr > alpha) # | alpha < alpha-tol)
+{
+  return(c(n, r, Bsize, typeIerr, pwr,  NA, NA, theta0, theta1, NA))
+}
+
+
+
+########################## ESS FOR SUCCESS POINTS
+success.n <- which(success.mat==1, arr.ind = T)[,"col"] # Note: this is potentially dangerous if this and final.probs.mat[success.mat==1] are found in a different order, though this shouldn't be the case.
+
+success.df <- data.frame(prob=prob.success, prob.p0=prob.success.p0, ess=prob.success*success.n, essH0=prob.success.p0*success.n)
+
+
+################## ESS FOR FAILURE POINTS
+fail.n <- which(fail.mat==1, arr.ind = T)[,"col"] # Note: this is potentially dangerous if this and final.probs.mat[success.mat==1] are found in a different order, though this shouldn't be the case.
+
+prob.fail <- final.probs.mat[fail.mat==1]
+prob.fail.p0 <- final.probs.mat.p0[fail.mat==1]
+
+fail.df <- data.frame(prob=prob.fail, prob.p0=prob.fail.p0, ess=prob.fail*fail.n, essH0=prob.fail.p0*fail.n)
+
+all.df <- rbind(fail.df, success.df)
+
+###### CHECK PROBS ALL SUM TO 1
+# sum(all.df$prob)
+
+if(sum(all.df$prob)+sum(all.df$prob.p0)-2 > 1e-8)  stop("Total probability of failure + success =/= 1. Something has gone wrong." , call. = FALSE)
+
+ess <- sum(all.df$ess)
+essH0 <- sum(all.df$essH0)
+
+
+
+############ EFFECTIVE N. THE "EFFECTIVE N" OF A STUDY IS THE "REAL" MAXIMUM SAMPLE SIZE
+######## The point is where every Sm for a given m equals zero or one is necessarily where a trial stops
+
+cp.colsums <- apply(mat, 2, function(x) { sum(x==0, na.rm=TRUE)+sum(x==1, na.rm=TRUE)} ) # Sum the CP values that equal zero or one in each column
+possible.cps <- apply(mat, 2, function(x) {sum(!is.na(x))})
+
+effective.n <- min(which(cp.colsums==possible.cps))
+return(data.frame(n=n, r=r, Bsize=Bsize, typeIerr=typeIerr, pwr=pwr, EssH0=essH0, Ess=ess, theta0=theta0, theta1=theta1, eff.n=effective.n))
+}
+
+
+
+
+
+
+
+findSCdes <- function(nmin,
+                      nmax,
+                      block.size,
+                      pc,
+                      pt,
+                      alpha,
+                      power,
+                      maxtheta0=NULL,
+                      mintheta1=0.7,
+                      bounds="ahern",
+                      fixed.r=NULL,
+                      max.combns=1e6)
+####
+# Main function, used to find designs. Arguments:
+# nmin, nmax: min and max total sample size to search over.
+# pc, pt: anticipated response rates on control and treatment arms.
+# alpha, power: required levels for type I error and complement of type II error.
+# maxtheta0: maximum permitted lower CP threshold (for making a no go decision), denoted theta_F_max in manuscript.
+# mintheta1: minimum permitted upper CP threshold  (for making a go decision), denoted theta_E_min in manuscript.
+# bounds: restricts the possible values of final stopping boundary r based on the work of A'Hern ("ahern"), ("wald") or neither (NULL).
+#         Using either "ahern" or "wald" will considerably speed up the code with little (if any) loss of admissible designs.
+#         Further, although "ahern" is more restrictive (and thus faster) than "wald", this also seems to have no negative effect on
+#         the number of admissible designs found.
+# fixed.r: restricts the possible values of final stopping boundary r to any value(s) chosen. Mostly useful to rerun a particular analysis.
+# max.combns: maximum number of CP combinations searched over per (r,N). Reducing this value will greatly improve run time.
+####
+{
+  require(tcltk)
+  require(data.table)
+  
+  Bsize <- block.size 
+  
+  if(Bsize%%2!=0) stop("Block size must be an even number")
+  
+  if((2*nmin)%%Bsize!=0) stop("2*nmin must be a multiple of block size")
+  if((2*nmax)%%Bsize!=0) stop("2*nmax must be a multiple of block size")
+  
+  nposs <- seq(from=nmin, to=nmax, by=Bsize/2)
+  
+  qc <- 1-pc
+  qt <- 1-pt
+  
+  ################ Function for finding the Prob(reponses on treatment + non-responses on control)=0, 1, 2,... Bsize:
+  findProbVec <- function(Bsize, pt=pt, qt=qt, pc=pc, qc=qc){
+    prob.vec <- rep(NA, Bsize+1)
+    for(i in 1:(Bsize+1)){
+      positives <- i-1
+      full.vec <- expand.grid(rep(list(0:1), Bsize))
+      positive.mat <- full.vec[rowSums(full.vec) == positives,]
+      negative.mat <- -1*(positive.mat-1)
+      
+      positive.vec <- rep(c(pt,qc), each=Bsize/2)
+      negative.vec <- rep(c(qt,pc), each=Bsize/2)
+      
+      posneg.mat <- t(t(positive.mat)*positive.vec) + t(t(negative.mat)*negative.vec)
+      prob.vec[i] <- sum(apply(posneg.mat, 1, prod))
+    }
+    if(sum(prob.vec)-1 > 1e-8) stop("Probabilities do not sum to 1.")
+    prob.vec
+  }
+  
+  ################ Function for finding the uncurtailed CP matrix:
+  
+  findBlock2armUncurtailedMatrix <- function(n, r, Bsize, pat.cols, prob.vec){
+    
+    cpmat <- matrix(3, ncol=2*n, nrow=min(n+r+Bsize+2, 2*n+1))
+    rownames(cpmat) <- 0:(nrow(cpmat)-1)
+    cpmat[(n+r+2):nrow(cpmat),] <- 1 
+    cpmat[1:(n+r+1),2*n] <- 0 # Fail at end
+    
+    for(i in (n+r+1):1){  
+      for(j in pat.cols){  # Only look every C patients (no need to look at final col)
+        if(i-1<=j){ # Condition: Sm<=m
+          cpmat[i,j] <- ifelse(test=j-(i-1) >= n-r+1, yes=0, no=sum(prob.vec*cpmat[i:(i+Bsize), j+Bsize])) 
+          # IF success is not possible (i.e. [total no. of pats-Xa+Ya-Xb] >= n-r+1), THEN set CP to zero. Otherwise, calculate it based on "future" CPs.
+        } 
+      }
+    }
+    
+    for(i in 3:nrow(cpmat)){
+      cpmat[i, 1:(i-2)] <- NA
+    }
+    cpmat
+  }
+  
+  
+  
+  prob.vec <- findProbVec(Bsize=Bsize, pt=pt, qt=qt, pc=pc, qc=qc)
+  prob.vec.p0 <- findProbVec(Bsize=Bsize, pt=pc, qt=qc, pc=pc, qc=qc)
+  
+  pat.cols.list <- lapply(nposs, function(x) seq(from=2*x, to=Bsize, by=-Bsize)[-1])
+  names(pat.cols.list) <- nposs
+  
+  if(is.null(maxtheta0)){
+    maxtheta0 <- pt
+  }
+  
+  r.list <- list()
+  for(i in 1:length(nposs))
+  {
+    r.list[[i]] <- 0:(nposs[i]-2) # r values: 0 to nposs[i]-2
+  }
+  
+  ns <- NULL
+  
+  for(i in 1:length(nposs)){
+    ns <- c(ns, rep(nposs[i], length(r.list[[i]])))
+  }
+  
+  sc.subset <- data.frame(n=ns, r=unlist(r.list))
+  
+  if(!is.null(bounds)){
+    # Incorporate A'Hern's bounds:
+    if(bounds=="ahern")  { 
+      #sc.subset <- sc.subset[sc.subset$r >= pc*sc.subset$n & sc.subset$r <= pt*sc.subset$n, ] # One-arm case
+      sc.subset <- sc.subset[sc.subset$r >= 1 & sc.subset$r <= pt*sc.subset$n, ] # Try this for two-arm case -- interval [1, pt*Narm]
+    }
+    
+    if(bounds=="wald"){
+      # To incorporate Wald's bounds:
+      denom <- log(pt/pc) - log((1-pt)/(1-pc))
+      accept.null <- log((1-power)/(1-alpha)) / denom  + nposs * log((1-pc)/(1-pt))/denom
+      accept.null <- floor(accept.null)
+      
+      reject.null <- log((power)/alpha) / denom  + nposs * log((1-pc)/(1-pt))/denom
+      reject.null <- ceiling(reject.null)
+      
+      r.wald <- NULL
+      ns.wald <- NULL
+      for(i in 1:length(nposs)){
+        r.wald <- c(r.wald, accept.null[i]:reject.null[i])
+        ns.wald <- c(ns.wald, rep(nposs[i], length(accept.null[i]:reject.null[i])))
+      }
+      sc.subset <- data.frame(n=ns.wald, r=r.wald)
+      sc.subset <- sc.subset[sc.subset$n - sc.subset$r >=2, ]
+    }
+  }
+  
+  # In case you want to specify values for r:
+  if(!is.null(fixed.r))  {
+    sc.subset <- sc.subset[sc.subset$r %in% fixed.r,]
+  }
+  
+  ###### Find thetas for each possible {r, N} combn:
+  
+  
+  mat.list <- vector("list", nrow(sc.subset))
+  
+  for(i in 1:nrow(sc.subset)){
+    mat.list[[i]] <- findBlock2armUncurtailedMatrix(n=sc.subset[i,"n"], r=sc.subset[i,"r"], Bsize=Bsize, pat.cols=pat.cols.list[[paste(sc.subset$n[i])]], prob.vec=prob.vec)
+  }
+  
+  store.all.thetas <- lapply(mat.list, function(x) {sort(unique(c(x))[unique(c(x)) <= 1])})
+  
+  
+  ##### To cut down on computation, try cutting down the number of thetas used:
+  ##### max.combns:=max. number of (theta0, theta1) combinations.
+  ##### n.thetas*(n.thetas-1)/2 = n.combns, so if n.thetas > sqrt(2*max.combns), take out every other value, excluding 0 and 1.
+  ##### Note: further below, more combns are removed if constraints on maxtheta0 and mintheta1 are specified.
+  if(max.combns!=Inf){
+    maxthetas <- sqrt(2*max.combns)
+    for(i in 1:nrow(sc.subset))
+    {
+      while(length(store.all.thetas[[i]]) > maxthetas)
+      {
+        every.other.element <- rep(c(FALSE, TRUE), 0.5*(length(store.all.thetas[[i]])-2))
+        store.all.thetas[[i]] <-  store.all.thetas[[i]][c(TRUE, every.other.element, TRUE)]
+      }
+    }
+  }
+  
+  all.theta.combns <- lapply(store.all.thetas, function(x) {t(combn(x, 2)) })
+  
+  for(i in 1:nrow(sc.subset)){
+    all.theta.combns[[i]] <- all.theta.combns[[i]][all.theta.combns[[i]][,2] >= mintheta1 & all.theta.combns[[i]][,1] <= maxtheta0, ] # Reduce number of combinations
+    if(length(all.theta.combns[[i]])==2) all.theta.combns[[i]] <- matrix(c(0, 0.999, 0, 1), nrow=2, byrow=T) # To avoid a crash. See (*) below
+    all.theta.combns[[i]] <- all.theta.combns[[i]][order(all.theta.combns[[i]][,2], decreasing=T),]
+  }
+  
+  ############################ NOT USED FOR TWO-ARM CASE
+  # ##### Matrix of coefficients: Probability of a SINGLE path leading to each point:
+  # coeffs <- matrix(NA, ncol=nmax, nrow=nmax+1)
+  # coeffs.pc <- coeffs
+  # 
+  # for(i in 1:(nmax+1)){
+  #   coeffs[i, ] <- pt^(i-1) * q1^((2-i):(2-i+nmax-1))
+  #   coeffs.pc[i, ] <- pc^(i-1) * q0^((2-i):(2-i+nmax-1))
+  # }
+  
+  
+  h.results.list <- vector("list", nrow(sc.subset)) # 
+  
+  pb <- txtProgressBar(min = 0, max = nrow(sc.subset), style = 3)
+  
+  
+  k <- 1
+  # Now, find the designs, looping over each possible {r, N} combination, and within each {r, N} combination, loop over all combns of {theta0, theta1}:
+  for(h in 1:nrow(sc.subset)){
+    #print(sc.subset[h,])
+    h.results <- vector("list", nrow(all.theta.combns[[h]])) 
+    
+    current.theta.combns <- all.theta.combns[[h]] # Take just the theta0/1 combns for that design.
+    # Don't need a matrix of all theta0 and theta1 combns -- potentially quicker to have theta0 as a vector (already defined), and the list can be a list of theta1 vectors:
+    current.theta.combns <- data.table(current.theta.combns)
+    current.theta.combns[, grp := .GRP, by = V2]
+    setkey(current.theta.combns, grp)
+    split.thetas <- current.theta.combns[, list(list(.SD)), by = grp]$V1
+    theta0.list <- lapply(split.thetas, function(x) x[, 1])
+    all.thetas <- rev(store.all.thetas[[h]])[-length(store.all.thetas[[h]])] # All theta1 values, decreasing, not including the final value, theta1=0.
+    all.thetas <- all.thetas[all.thetas>=mintheta1]
+    
+    blank.mat <- matrix(NA, nrow=nrow(mat.list[[h]]), ncol=ncol(mat.list[[h]]))
+    rownames(blank.mat) <- 0:(nrow(blank.mat)-1)
+    
+    zero.mat <- matrix(0, nrow=nrow(mat.list[[h]]), ncol=ncol(mat.list[[h]]))
+    rownames(zero.mat) <- rownames(blank.mat)
+    
+    pat.cols.single <- pat.cols.list[[paste(sc.subset$n[h])]]
+    
+    for(i in 1:length(all.thetas)){ # For each theta1, 
+      theta0s.current <- theta0.list[[i]] # theta0.list is a list of i vectors. The i'th vector in the list contains all possible values of theta0 for the i'th theta1 (stored as all.thetas[i])
+      for(m in 1:nrow(theta0s.current)){
+        #if(as.numeric(theta0s.current[m])<0.24  & as.numeric(theta0s.current[m])>0.23 & all.thetas[i]<0.74 & all.thetas[i]>0.73) browser()
+        
+        # print(paste(sc.subset$n[h], sc.subset$r[h], as.numeric(theta0s.current[m]), all.thetas[i]), q=F)
+        h.results[[k]] <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=as.numeric(theta0s.current[m]), theta1=all.thetas[i], mat=mat.list[[h]],
+                                           power=power, alpha=alpha, pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+        k <- k+1
+        # Add lines here: if power decreases below desired value, break:
+        if(h.results[[k-1]][5] < power){
+          break
+        }
+      }
+    } # end of "i" loop
+    
+    setTxtProgressBar(pb, h)
+    h.results.df <- do.call(rbind, h.results)
+    
+    if(!is.null(h.results.df)){
+      # Remove all "skipped" results:
+      colnames(h.results.df) <- c("n", "r", "block", "alpha", "power", "EssH0", "Ess", "theta0", "theta1", "eff.n")
+      h.results.df <- h.results.df[!is.na(h.results.df[, "Ess"]),]
+      h.results.list[[h]] <- h.results.df
+    }
+  } # End of "h" loop
+  
+  
+  #  browser()
+  
+  
+  full.results <- do.call(rbind, h.results.list)
+  #if(length(full.results)==0) stop("There are no feasible designs for this combination of design parameters" , call. = FALSE)
+  if(length(full.results)>0){
+    # Discard all "inferior" designs:
+    discard <- rep(NA, nrow(full.results))
+    for(i in 1:nrow(full.results))
+    {
+      discard[i] <- sum(full.results[i, "EssH0"] > full.results[, "EssH0"] & full.results[i, "Ess"] > full.results[, "Ess"] & full.results[i, "n"] >= full.results[, "n"])
+      #print(i)
+    }
+    
+    subset.results <- full.results[discard==0,,drop=FALSE]
+    
+    
+    # Remove duplicates:
+    duplicates <- duplicated(subset.results[, c("n", "EssH0", "Ess"), drop=FALSE])
+    admissible.ds <- subset.results[!duplicates,,drop=FALSE]
+    admissible.ds$looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
+    admissible.ds$pc <- rep(pc, nrow(admissible.ds))
+    admissible.ds$pt <- rep(pt, nrow(admissible.ds))
+    return(admissible.ds)
+  }
+}
+
+
+
+
+
+
+
+
+
+find2armBlockDesigns <- function(nmin, nmax, block.size, pc, pt, alpha, power, maxtheta0=NULL, mintheta1=0.7, bounds=NULL, fixed.r=NULL, max.combns=1e6)
+{
+require(tcltk)
+require(data.table)
+
+Bsize <- block.size 
+
+if(Bsize%%2!=0) stop("Block size must be an even number")
+
+if((2*nmin)%%Bsize!=0) stop("2*nmin must be a multiple of block size")
+if((2*nmax)%%Bsize!=0) stop("2*nmax must be a multiple of block size")
+
+nposs <- seq(from=nmin, to=nmax, by=Bsize/2)
+
+qc <- 1-pc
+qt <- 1-pt
+
+################ Function for finding the Prob(reponses on treatment + non-responses on control)=0, 1, 2,... Bsize:
+findProbVec <- function(Bsize, pt=pt, qt=qt, pc=pc, qc=qc){
+  prob.vec <- rep(NA, Bsize+1)
+  for(i in 1:(Bsize+1)){
+    positives <- i-1
+    full.vec <- expand.grid(rep(list(0:1), Bsize))
+    positive.mat <- full.vec[rowSums(full.vec) == positives,]
+    negative.mat <- -1*(positive.mat-1)
+    
+    positive.vec <- rep(c(pt,qc), each=Bsize/2)
+    negative.vec <- rep(c(qt,pc), each=Bsize/2)
+    
+    posneg.mat <- t(t(positive.mat)*positive.vec) + t(t(negative.mat)*negative.vec)
+    prob.vec[i] <- sum(apply(posneg.mat, 1, prod))
+  }
+  if(sum(prob.vec)-1 > 1e-8) stop("Probabilities do not sum to 1.")
+  prob.vec
+}
+
+################ Function for finding the uncurtailed CP matrix:
+findBlock2armUncurtailedMatrix <- function(n, r, Bsize, pat.cols, prob.vec){
+
+  cpmat <- matrix(3, ncol=2*n, nrow=min(n+r+Bsize+2, 2*n+1))
+  rownames(cpmat) <- 0:(nrow(cpmat)-1)
+  cpmat[(n+r+2):nrow(cpmat),] <- 1 
+  cpmat[1:(n+r+1),2*n] <- 0 # Fail at end
+  
+  for(i in (n+r+1):1){  
+    for(j in pat.cols){  # Only look every C patients (no need to look at final col)
+      if(i-1<=j){ # Condition: Sm<=m
+        cpmat[i,j] <- ifelse(test=j-(i-1) >= n-r+1, yes=0, no=sum(prob.vec*cpmat[i:(i+Bsize), j+Bsize])) 
+        # IF success is not possible (i.e. [total no. of pats-Xa+Ya-Xb] >= n-r+1), THEN set CP to zero. Otherwise, calculate it based on "future" CPs.
+      } 
+    }
+  }
+  
+  for(i in 3:nrow(cpmat)){
+    cpmat[i, 1:(i-2)] <- NA
+  }
+  cpmat
+}
+
+
+
+prob.vec <- findProbVec(Bsize=Bsize, pt=pt, qt=qt, pc=pc, qc=qc)
+prob.vec.p0 <- findProbVec(Bsize=Bsize, pt=pc, qt=qc, pc=pc, qc=qc)
+
+pat.cols.list <- lapply(nposs, function(x) seq(from=2*x, to=Bsize, by=-Bsize)[-1])
+names(pat.cols.list) <- nposs
+
+if(is.null(maxtheta0)){
+  maxtheta0 <- pt
+}
+
+r.list <- list()
+for(i in 1:length(nposs))
+{
+  r.list[[i]] <- 0:(nposs[i]-2) # r values: 0 to nposs[i]-2
+}
+
+ns <- NULL
+
+for(i in 1:length(nposs)){
+  ns <- c(ns, rep(nposs[i], length(r.list[[i]])))
+}
+
+sc.subset <- data.frame(n=ns, r=unlist(r.list))
+
+if(!is.null(bounds)){
+  # Incorporate A'Hern's bounds:
+  if(bounds=="ahern")  { 
+    #sc.subset <- sc.subset[sc.subset$r >= pc*sc.subset$n & sc.subset$r <= pt*sc.subset$n, ] # One-arm case
+    sc.subset <- sc.subset[sc.subset$r >= 1 & sc.subset$r <= pt*sc.subset$n, ] # Try this for two-arm case -- interval [1, pt*Narm]
+  }
+  
+  if(bounds=="wald"){
+    # Even better to incorporate Wald's bounds:
+    denom <- log(pt/pc) - log((1-pt)/(1-pc))
+    accept.null <- log((1-power)/(1-alpha)) / denom  + nposs * log((1-pc)/(1-pt))/denom
+    accept.null <- floor(accept.null)
+    
+    reject.null <- log((power)/alpha) / denom  + nposs * log((1-pc)/(1-pt))/denom
+    reject.null <- ceiling(reject.null)
+    
+    r.wald <- NULL
+    ns.wald <- NULL
+    for(i in 1:length(nposs)){
+      r.wald <- c(r.wald, accept.null[i]:reject.null[i])
+      ns.wald <- c(ns.wald, rep(nposs[i], length(accept.null[i]:reject.null[i])))
+    }
+    sc.subset <- data.frame(n=ns.wald, r=r.wald)
+    sc.subset <- sc.subset[sc.subset$n - sc.subset$r >=2, ]
+  }
+}
+
+# In case you want to specify values for r:
+if(!is.null(fixed.r))  {
+  sc.subset <- sc.subset[sc.subset$r %in% fixed.r,]
+}
+  
+###### Find thetas for each possible {r, N} combn:
+  
+
+mat.list <- vector("list", nrow(sc.subset))
+
+for(i in 1:nrow(sc.subset)){
+  mat.list[[i]] <- findBlock2armUncurtailedMatrix(n=sc.subset[i,"n"], r=sc.subset[i,"r"], Bsize=Bsize, pat.cols=pat.cols.list[[paste(sc.subset$n[i])]], prob.vec=prob.vec)
+}
+
+store.all.thetas <- lapply(mat.list, function(x) {sort(unique(c(x))[unique(c(x)) <= 1])})
+
+
+##### To cut down on computation, try cutting down the number of thetas used:
+##### max.combns:=max. number of (theta0, theta1) combinations.
+##### n.thetas*(n.thetas-1)/2 = n.combns, so if n.thetas > sqrt(2*max.combns), take out every other value, excluding 0 and 1.
+##### Note: further below, more combns are removed if constraints on maxtheta0 and mintheta1 are specified.
+if(max.combns!=Inf){
+  maxthetas <- sqrt(2*max.combns)
+  for(i in 1:nrow(sc.subset))
+  {
+    while(length(store.all.thetas[[i]]) > maxthetas)
+    {
+      every.other.element <- rep(c(FALSE, TRUE), 0.5*(length(store.all.thetas[[i]])-2))
+      store.all.thetas[[i]] <-  store.all.thetas[[i]][c(TRUE, every.other.element, TRUE)]
+    }
+  }
+}
+  
+############################ NOT USED FOR TWO-ARM CASE
+  # ##### Matrix of coefficients: Probability of a SINGLE path leading to each point:
+  # coeffs <- matrix(NA, ncol=nmax, nrow=nmax+1)
+  # coeffs.pc <- coeffs
+  # 
+  # for(i in 1:(nmax+1)){
+  #   coeffs[i, ] <- pt^(i-1) * q1^((2-i):(2-i+nmax-1))
+  #   coeffs.pc[i, ] <- pc^(i-1) * q0^((2-i):(2-i+nmax-1))
+  # }
+
+  
+  h.results.list <- vector("list", nrow(sc.subset)) # 
+  
+  pb <- txtProgressBar(min = 0, max = nrow(sc.subset), style = 3)
+  
+
+  # Now, find the designs, looping over each possible {r, N} combination, and within each {r, N} combination, loop over all combns of {theta0, theta1}:
+  for(h in 1:nrow(sc.subset)){
+    k <- 1
+    #print(sc.subset[h,])
+    
+    ########### START 2D BISECTION
+    
+    theta0.vec <- store.all.thetas[[h]][store.all.thetas[[h]]<=maxtheta0]
+    theta1.vec <- store.all.thetas[[h]][store.all.thetas[[h]]>=mintheta1]
+     
+    h.results <- vector("list", length(theta0.vec)*length(theta1.vec)) 
+
+    blank.mat <- matrix(NA, nrow=nrow(mat.list[[h]]), ncol=ncol(mat.list[[h]]))
+    rownames(blank.mat) <- 0:(nrow(blank.mat)-1)
+      
+    zero.mat <- matrix(0, nrow=nrow(mat.list[[h]]), ncol=ncol(mat.list[[h]]))
+    rownames(zero.mat) <- rownames(blank.mat)
+    
+    # Bounds for theta0:
+    a0 <- 1
+    b0 <- length(theta0.vec)
+    d0 <- ceiling((b0-a0)/2)
+    # Bounds for theta1:
+    a1 <- 1
+    b1 <- length(theta1.vec)
+    d1 <- ceiling((b1-a1)/2)
+    
+    pat.cols.single <- pat.cols.list[[paste(sc.subset$n[h])]]
+    
+    mintheta0 <- NA
+    maxtheta1 <- NA
+    while(min((b0-a0),(b1-a1))>1 & is.na(mintheta0)){ # Break/move on when bisection method fails to find anything OR when final feasible design is found.
+       # print(paste(theta0.vec[d0], theta1.vec[d1]), q=F)
+        output <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=theta0.vec[d0], theta1=theta1.vec[d1], mat=mat.list[[h]],  power=power, alpha=alpha,
+                                   pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+
+       if(!is.na(output[6])){ # If ESS is not NA, then design IS feasible, and do:
+          feasible <- TRUE
+          maxtheta1 <- theta1.vec[d1]
+          while((feasible==TRUE) & d0<length(theta0.vec)){
+              d0 <- d0+1
+              h.results[[k]] <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=theta0.vec[d0], theta1=maxtheta1, mat=mat.list[[h]],  power=power, alpha=alpha,
+                                         pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+              feasible <- !is.na(h.results[[k]][6])
+              k <- k+1
+          } # Once the final feasible design for the given theta0/1 is found (or we reach the largest theta0), record theta0 and make it a limit:
+          mintheta0 <- theta0.vec[d0-1]
+        } else { # If design isn't feasible, decrease theta0, increase theta1 and test again: 
+           b0 <- d0
+           a1 <- d1
+           d0 <- a0 + floor((b0-a0)/2)
+           d1 <- a1 + floor((b1-a1)/2)
+       }
+    }
+    
+    if(!is.na(mintheta0)){ # If at least one feasible design was found, then mintheta0 exists, and we search over all theta0/1 combinations subject to the new limits we have just created:
+      
+     # print(paste(mintheta0, maxtheta1, q=F))
+
+      theta0.vec <- theta0.vec[theta0.vec>=mintheta0]
+      theta1.vec <- theta1.vec[theta1.vec<=maxtheta1]
+      for(i in 1:length(theta1.vec)){
+        for(j in 1:length(theta0.vec)){
+          #  print(paste(theta0.vec[i], theta1.vec[j]))
+          h.results[[k]] <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=theta0.vec[j], theta1=theta1.vec[i], mat=mat.list[[h]],
+                             power=power, alpha=alpha, pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+          
+          k <- k+1
+        }
+      }
+    } # if no feasible designs found, do nothing and let loop end.
+
+    setTxtProgressBar(pb, h)
+    
+    h.results.df <- do.call(rbind, h.results)
+    
+    if(!is.null(h.results.df)){
+      # Remove all "skipped" results:
+      colnames(h.results.df) <- c("n", "r", "block", "alpha", "power", "EssH0", "Ess", "theta0", "theta1", "eff.n")
+      h.results.df <- h.results.df[!is.na(h.results.df[, "Ess"]),]
+      if(nrow(h.results.df)>0){
+        # Remove dominated and duplicated designs:
+        discard <- rep(NA, nrow(h.results.df))
+        for(i in 1:nrow(h.results.df)){
+          discard[i] <- sum(h.results.df[i, "EssH0"] > h.results.df[, "EssH0"] & h.results.df[i, "Ess"] > h.results.df[, "Ess"] & h.results.df[i, "n"] >= h.results.df[, "n"])
+        }
+        h.results.df <- h.results.df[discard==0,, drop=FALSE]
+        
+        
+        #if(is.matrix(h.results.df)){ # i.e. if there is more than one design (if not, h.results.df is a vector)
+        # duplicates <- duplicated(h.results.df[, c("n", "Ess", "EssH0"), drop=FALSE])
+        # h.results.df <- h.results.df[!duplicates,, drop=FALSE]
+        # }
+        h.results.list[[h]] <- h.results.df
+      }
+    }
+  } # End of "h" loop
+  
+  
+  full.results <- do.call(rbind, h.results.list)
+  #if(length(full.results)==0) stop("There are no feasible designs for this combination of design parameters" , call. = FALSE)
+  if(length(full.results)>0){
+    # Discard all "inferior" designs:
+    discard <- rep(NA, nrow(full.results))
+    for(i in 1:nrow(full.results))
+    {
+      discard[i] <- sum(full.results[i, "EssH0"] > full.results[, "EssH0"] & full.results[i, "Ess"] > full.results[, "Ess"] & full.results[i, "n"] >= full.results[, "n"])
+      #print(i)
+    }
+    
+    subset.results <- full.results[discard==0,,drop=FALSE]
+    
+    
+    # Remove duplicates:
+    duplicates <- duplicated(subset.results[, c("n", "EssH0", "Ess"), drop=FALSE])
+    admissible.ds <- subset.results[!duplicates,,drop=FALSE]
+    looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
+    admissible.ds <- cbind(admissible.ds, looks)
+    return(admissible.ds)
+  }
+}
+
+
+
+
+
+
+findN1N2R1R2twoarm <- function(nmin, nmax, e1=FALSE){
+    nposs <- nmin:nmax
+    n1.list <- list()
+    n2.list <- list()
+    
+    for(i in 1:length(nposs)){
+      n1.list[[i]] <- 1:(nposs[i]-1)
+      n2.list[[i]] <- nposs[i]-n1.list[[i]]
+    }
+    
+    # All possibilities together:
+    n1 <- rev(unlist(n1.list))
+    n2 <- rev(unlist(n2.list))
+    n <- n1 + n2
+    ns <- cbind(n1, n2, n)
+    
+    ################################ FIND COMBNS OF R1 AND R ###############################
+    
+    r1.list <- vector("list")
+    ns.list <- vector("list")
+    for(i in 1:nrow(ns)){
+      r1.list[[i]] <- -n1[i]:n1[i] # r1 values: -n1 to n1, for each possible n1
+      #ns.list[[i]] <- 
+    }
+    
+    rownames(ns) <- 1:nrow(ns)
+    ns <- ns[rep(row.names(ns), sapply(r1.list, length)), ] # duplicate each row so that there are sufficient rows for each r1 value
+    ns <- cbind(ns, unlist(r1.list))
+    colnames(ns)[4] <- "r1"
+    
+    ######### Add possible r values:
+    r.list1 <- apply(ns, 1, function(x) {(x["r1"]-x["n2"]):x["n"]})  # r must satisfy r > r1 and r < n. Also, number of responses required in stage 2 (r2-r1) must be at most n2
+    
+    how.many.rs <- sapply(r.list1, length)
+    
+    row.names(ns) <- 1:nrow(ns)
+    ns <- ns[rep(row.names(ns), how.many.rs), ] # duplicate each row a certain number of times
+    ns <- cbind(ns, unlist(r.list1))
+    colnames(ns)[5] <- "r2"
+    
+    ### Finally, add e1 for stopping for benefit:
+    
+    if(e1==TRUE) 
+    {
+
+    } else {
+      rownames(ns) <- 1:nrow(ns)
+      ns <- data.frame(ns)
+    }
+    
+    return(ns)
+}  
+
+
+
+
+
+
+
+
+
+
+
+
+findCarstenChenTypeITypeIIRmRows <- function(nr.list, pc, pt, runs, alpha, power, seed, method){
+   
+  set.seed(seed)
+  
+  ########### Function for single row: Carsten #############
+  carstenSim <- function(h0, n1, n, a1, r2, pc, pt, runs){
+  
+  if(h0==TRUE){
+    pt <- pc
+  } 
+    
+  n2 <- n-n1
+  nogo <- 0
+  go <- 0
+  ss <- rep(NA, runs)
+  
+  all.pairs <- rbinom(runs*n, 1, prob=pt) - rbinom(runs*n, 1, prob=pc)
+  pairs.mat <- matrix(all.pairs, nrow=runs, ncol=n, byrow=TRUE)
+  
+  for(i in 1:runs){
+    pair <- pairs.mat[i, ]
+    successes <- 0
+    fails <- 0
+    y <- 0
+    j <- 1
+
+    ### Stage 1
+    while(y<n1 & successes<a1 & fails<n1-a1+1){
+      if(pair[j]==1){
+        successes <- successes+1
+      } else {
+        fails <- fails+1
+      }
+      y <- y+1
+      j <- j+1
+    }
+    
+    ### Trial fails at stage 1:
+    if(fails==n1-a1+1){
+      nogo <- nogo+1
+      ss[i] <- 2*y
+    } else { 
+      ### Trial does not fail at stage 1 -- recruit the remaining participants until curtailment or end:
+      while(y<n & successes<r2 & fails<n1+n2-r2+1){
+        if(pair[j]==1){
+          successes <- successes+1
+        } else {
+          fails <- fails+1
+        }
+        y <- y+1
+        j <- j+1
+      }
+      ### Trial fails at stage 2:
+      if(fails==n1+n2-r2+1){
+        #print("fail at stage 2", q=F)
+        nogo <- nogo+1
+      } else { 
+        go <- go+1
+      }
+      ss[i] <- 2*y
+    }
+  }
+  return(c(n1, n, a1, r2, go/runs, mean(ss)))
+  }
+########### End of function for single row #############
+  
+########### Function for single row: Chen #############
+  chenSim <- function(h0, n1, n, a1, r2, pc, pt, runs){
+    
+    n2 <- n-n1
+    
+    # Stopping rules for S1 and S2:
+    s1.nogo <- n1-a1+1
+    s2.go <- n+r2
+    s2.nogo <- n-r2+1
+    
+    # h0: Set TRUE to estimate type I error and ESS|pt=pc, set to FALSE for power and ESS|pt=pt
+    if(h0==TRUE){
+      pt <- pc
+    } 
+    
+    # Simulate all successes together, on trt and on control. "Success" means reponse if on trt, non-response if on control:
+    trt <- rbinom(n*runs, 1, prob=pt)
+    con <- rbinom(n*runs, 1, prob=1-pc)
+    
+    ##### Build matrix of successes, both stage 1 and stage 2 #####
+    # Allocate pats to trt or control. Note: Balance only required by end of trial.
+    alloc <- vector("list", runs)
+    n.times.i.minus.1 <- n*((1:runs)-1)
+    success.s12 <- matrix(rep(0, 2*n*runs), nrow=runs)
+    
+    # TRUE for TREATMENT, FALSE for CONTROL:
+    for(i in 1:runs){
+      alloc[[i]] <- sample(rep(c(T, F), n), size=2*n, replace=F)
+      s.index <- (n.times.i.minus.1[i]+1):(n.times.i.minus.1[i]+n)
+      success.s12[i, alloc[[i]]] <-  trt[s.index]
+      success.s12[i,!alloc[[i]]] <-  con[s.index]
+    }
+    
+    success <- success.s12
+    failure <- -1*(success-1)
+    
+    # Cumulative successes and failures over time:
+    success.cum <- t(apply(success, 1, cumsum))
+    failure.cum <- t(apply(failure, 1, cumsum))
+    # Stage 1 only:
+    success.s1.cum <- success.cum[,1:(2*n1)]
+    failure.s1.cum <- failure.cum[,1:(2*n1)]
+    
+    # Split into "curtailed during S1" and "not curtailed during S1". Note: curtail for no go only.
+    curtailed.s1.bin <- apply(failure.s1.cum, 1, function(x) any(x==s1.nogo)) 
+    curtailed.s1.index <- which(curtailed.s1.bin) # Index of trials/rows that reach the S1 no go stopping boundary
+    curtailed.s1.subset <- failure.s1.cum[curtailed.s1.index, , drop=FALSE]
+    # Sample size of trials curtailed at S1:
+    s1.curtailed.ss <- apply(curtailed.s1.subset, 1, function(x) which.max(x==s1.nogo))
+    
+    ########## All other trials progress to S2. Subset these:
+    success.cum.nocurtail.at.s1 <- success.cum[-curtailed.s1.index, , drop=FALSE]
+    failure.cum.nocurtail.at.s1 <- failure.cum[-curtailed.s1.index, , drop=FALSE]
+    
+    # Trials/rows that reach the S2 go stopping boundary (including trials that continue to the end):
+    s2.go.bin <- apply(success.cum.nocurtail.at.s1, 1, function(x) any(x==s2.go))
+    s2.go.index <- which(s2.go.bin)
+    # Sample size of trials with a go decision:
+    s2.go.ss <- apply(success.cum.nocurtail.at.s1[s2.go.index, , drop=FALSE], 1, function(x) which.max(x==s2.go))
+    # Sample size of trials with a no go decision, conditional on not stopping in S1:
+    s2.nogo.ss <- apply(failure.cum.nocurtail.at.s1[-s2.go.index, , drop=FALSE], 1, function(x) which.max(x==s2.nogo))
+    
+    ess <- sum(s1.curtailed.ss, s2.go.ss, s2.nogo.ss)/runs
+    prob.reject.h0 <- length(s2.go.ss)/runs
+    prob.accept.h0 <- (length(s2.nogo.ss)+length(s1.curtailed.ss))/runs
+    
+    return(c(n1, n, a1, r2, prob.reject.h0, ess))
+  }
+########### End of function for single row ############
+  
+  
+output <- vector("list", nrow(nr.list))
+
+# n1, n, a1/r1 are the same for each row of the data frame:
+n1 <- nr.list[,"n1"][1]
+n <- nr.list[,"n"][1]
+a1 <- nr.list[,"r1"][1]
+r2.vec <- nr.list[,"r2"]
+
+# Run simulations and keep only {n1,n,a1,r2} combns that are feasible in terms of power:
+if(method=="carsten"){
+  for(i in 1:nrow(nr.list)){
+    output[[i]] <- carstenSim(h0=FALSE, n1=n1, n=n, a1=a1, r2=r2.vec[i], pc=pc, pt=pt, runs=runs)
+    if(output[[i]][5]<power){ # stop as soon as power drops below fixed value (ie becomes unfeasible) and remove that row:
+      output[[i]] <- NULL
+      break
+    }
+  }
+} else {
+  for(i in 1:nrow(nr.list)){
+    output[[i]] <- chenSim(h0=FALSE, n1=n1, n=n, a1=a1, r2=r2.vec[i], pc=pc, pt=pt, runs=runs)
+    if(output[[i]][5]<power){ # stop as soon as power drops below fixed value (ie becomes unfeasible) and remove that row:
+      output[[i]] <- NULL
+      break
+    }
+  }
+}
+
+output <- do.call(rbind, output)
+
+
+if(!is.null(output)){
+  colnames(output) <- c("n1", "n", "r1", "r2", "pwr", "Ess")
+  output <- subset(output, output[,"pwr"]>=power)
+# Now type I error:
+  typeIoutput <- vector("list", nrow(output))
+  if(method=="carsten"){
+    for(i in 1:nrow(output)){
+      typeIerr <- 0
+      # Reverse order of r2 values to start with greatest value and decrease, so that type I error increases the code proceeds:
+      reversed.r2 <- rev(output[,"r2"])
+      for(i in 1:nrow(output)){
+        typeIoutput[[i]] <- carstenSim(h0=TRUE, n1=n1, n=n, a1=a1, r2=reversed.r2[i], pc=pc, pt=pt, runs=runs)
+        if(typeIoutput[[i]][5]>alpha){ # stop as soon as type I error increases above fixed value (ie becomes unfeasible)and remove that row:
+          typeIoutput[[i]] <- NULL
+          break
+        }
+      }
+    }
+  }  else{
+    for(i in 1:nrow(output)){
+      typeIerr <- 0
+      # Reverse order of r2 values to start with greatest value and decrease, so that type I error increases the code proceeds:
+      reversed.r2 <- rev(output[,"r2"])
+      for(i in 1:nrow(output)){
+        typeIoutput[[i]] <- chenSim(h0=TRUE, n1=n1, n=n, a1=a1, r2=reversed.r2[i], pc=pc, pt=pt, runs=runs)
+        if(typeIoutput[[i]][5]>alpha){ # stop as soon as type I error increases above fixed value (ie becomes unfeasible)and remove that row:
+          typeIoutput[[i]] <- NULL
+          break
+        }
+      }
+    }
+  }
+} else{ # If there are no designs with pwr >= power, stop and return NULL:
+  return(output)
+  }
+
+typeIoutput <- do.call(rbind, typeIoutput)
+
+# If there are feasible designs, merge power and type I error results, o/w stop:
+if(!is.null(typeIoutput)){
+  colnames(typeIoutput) <- c("n1", "n", "r1", "r2", "typeIerr", "EssH0")
+  all.results <- merge(output, typeIoutput, all=FALSE)
+} else{
+  return(typeIoutput)
+}
+
+# # Subset to feasible results:
+# subset.results <- all.results[all.results[,"typeIerr"]<=alpha & all.results[,"pwr"]>=power, ]
+# 
+# if(nrow(subset.results)>0){
+#   # Discard all "inferior" designs:
+#   discard <- rep(NA, nrow(subset.results))
+#   for(i in 1:nrow(subset.results)){
+#    discard[i] <- sum(subset.results[i, "EssH0"] > subset.results[, "EssH0"] & subset.results[i, "Ess"] > subset.results[, "Ess"] & subset.results[i, "n"] >= subset.results[, "n"])
+#    #print(i)
+#   }
+#   subset.results <- subset.results[discard==0,,drop=FALSE]
+# }
+#   return(subset.results)
+return(all.results)
+}
+
+
+
+
+
+
+
+
+
+
+ findSingle2arm2stageJungDesignFast <- function(n1, n2, n, a1, r2, p0, p1, alpha, power){
+   
+   #print(paste(n, n1, n2), q=F)
+   
+   k1 <- a1:n1
+   
+    y1.list <- list()
+    for(i in 1:length(k1)){
+      y1.list[[i]] <- max(0, -k1[i]):(n1-max(0, k1[i]))
+    }
+    
+    k1 <- rep(k1, sapply(y1.list, length))
+    y1 <- unlist(y1.list)
+    
+    combns <- cbind(k1, y1)
+    colnames(combns) <- c("k1", "y1")
+    rownames(combns) <- 1:nrow(combns)
+    
+    k2.list <- vector("list", length(k1))
+    for(i in 1:length(k1)){
+      k2.list[[i]] <- (r2-k1[i]):n2
+    }
+    
+    combns2 <- combns[rep(row.names(combns), sapply(k2.list, length)), , drop=FALSE] # duplicate each row so that there are sufficient rows for each a1 value
+    k2 <- unlist(k2.list)
+    combns2 <- cbind(combns2, k2)
+    rownames(combns2) <- 1:nrow(combns2)
+    
+    y2.list <- vector("list", length(k2))
+    for(i in 1:length(k2)){
+      current.k2 <- -k2[i]
+      y2.list[[i]] <- max(0, current.k2):(n2-max(0, current.k2))
+    }
+    y2 <- unlist(y2.list)
+    
+    combns3 <- combns2[rep(row.names(combns2), sapply(y2.list, length)), , drop=FALSE] # duplicate each row so that there are sufficient rows for each a1 value
+    all.combns <- cbind(combns3, y2)
+    
+    # Convert to vectors for speed:
+    
+    k1.vec <- all.combns[,"k1"]
+    y1.vec <- all.combns[,"y1"]
+    k2.vec <- all.combns[,"k2"]
+    y2.vec <- all.combns[,"y2"]
+    
+    # Easier to understand, but slower:
+     part1 <- choose(n1, y1.vec)*p0^y1.vec*(1-p0)^(n1-y1.vec) * choose(n2, y2.vec)*p0^y2.vec*(1-p0)^(n2-y2.vec)
+     typeIerr <- sum(part1 * choose(n1, k1.vec+y1.vec)*p0^(k1.vec+y1.vec)*(1-p0)^(n1-(k1.vec+y1.vec)) * choose(n2, k2.vec+y2.vec)*p0^(k2.vec+y2.vec)*(1-p0)^(n2-(k2.vec+y2.vec)))
+     pwr <- sum(part1 * choose(n1, k1.vec+y1.vec)*p1^(k1.vec+y1.vec)*(1-p1)^(n1-(k1.vec+y1.vec)) * choose(n2, k2.vec+y2.vec)*p1^(k2.vec+y2.vec)*(1-p1)^(n2-(k2.vec+y2.vec)))
+    
+    # Harder to understand, but faster:
+    # q0 <- 1-p0
+    # q1 <- 1-p1
+    # n1.minus.y1 <- n1-y1.vec
+    # n2.minus.y2 <- n1-y1.vec
+    # k1.plus.y1 <- k1.vec+y1.vec
+    # k2.plus.y2 <- k2.vec+y2.vec
+    # n1.minus.k1.and.y1 <- n1-k1.plus.y1
+    # n2.minus.k2.and.y2 <- n2-k2.plus.y2
+    # choose.n1.k1.plus.y1 <- choose(n1, k1.plus.y1)
+    # choose.n2.k2.plus.y2 <- choose(n2, k2.plus.y2)
+    # 
+    # part1 <- choose(n1, y1.vec)*p0^y1.vec*q0^n1.minus.y1 * choose(n2, y2.vec)*p0^y2.vec*q0^n2.minus.y2 * choose.n1.k1.plus.y1 * choose.n2.k2.plus.y2
+    # typeIerr <- sum(part1 * p0^k1.plus.y1*q0^n1.minus.k1.and.y1 * p0^k2.plus.y2*q0^n2.minus.k2.and.y2)
+    # pwr <- sum(part1 * p1^k1.plus.y1*q1^n1.minus.k1.and.y1 * p1^k2.plus.y2*q1^n2.minus.k2.and.y2)
+    
+    
+    
+    # Find ESS under H0 and H1:
+    if(typeIerr<=alpha & pwr>=power){
+      k11 <- -n1:(a1-1)
+      y11.list <- vector("list", length(k11))
+      for(i in 1:length(k11)){
+        y11.list[[i]] <- max(0, -k11[i]):(n1-max(0, k11[i]))
+      }
+      k11.vec <- rep(k11, sapply(y11.list, length))
+      y11.vec <- unlist(y11.list)
+
+      petH0 <- sum(choose(n1, y11.vec)*p0^y11.vec*(1-p0)^(n1-y11.vec) * choose(n1, k11.vec+y11.vec)*p0^(k11.vec+y11.vec)*(1-p0)^(n1-(k11.vec+y11.vec)))
+      petH1 <- sum(choose(n1, y11.vec)*p1^y11.vec*(1-p1)^(n1-y11.vec) * choose(n1, k11.vec+y11.vec)*p1^(k11.vec+y11.vec)*(1-p1)^(n1-(k11.vec+y11.vec)))
+
+      # choose.n1.y11 <- choose(n1, y11.vec)
+      # n1.minus.y11 <- n1-y11.vec
+      # choose.k11.y11 <- choose(n1, k11.vec+y11.vec)
+      # k11.y11 <- k11.vec+y11.vec
+      # n1.minus.k11.y11 <- n1-k11.y11
+      # 
+      # pet.part1 <- choose.n1.y11 * choose.k11.y11
+      # petH0 <- sum(pet.part1 * p0^y11.vec*q0^n1.minus.y11 * p0^k11.y11*q0^n1.minus.k11.y11)
+      # petH1 <- sum(pet.part1 * p1^y11.vec*q1^n1.minus.y11 * p1^k11.y11*q1^n1.minus.k11.y11)
+
+      essH0 <- n1*petH0 + n*(1-petH0)
+      essH1 <- n1*petH1 + n*(1-petH1)
+      
+      return(c(n1, n2, n, a1, r2, typeIerr, pwr, essH0, essH1))
+    } else {
+        return(c(n1, n2, n, a1, r2, typeIerr, pwr, NA, NA))
+      }
+ }
+ 
+ 
+ 
+######## Find stopping boundaries for one design #########
+# The function findBounds can be used to find stopping boundaries for an SC design.
+ 
+ findProbVec <- function(Bsize, pt=pt, qt=qt, pc=pc, qc=qc){
+   prob.vec <- rep(NA, Bsize+1)
+   for(i in 1:(Bsize+1)){
+     positives <- i-1
+     full.vec <- expand.grid(rep(list(0:1), Bsize))
+     positive.mat <- full.vec[rowSums(full.vec) == positives,]
+     negative.mat <- -1*(positive.mat-1)
+     
+     positive.vec <- rep(c(pt,qc), each=Bsize/2)
+     negative.vec <- rep(c(qt,pc), each=Bsize/2)
+     
+     posneg.mat <- t(t(positive.mat)*positive.vec) + t(t(negative.mat)*negative.vec)
+     prob.vec[i] <- sum(apply(posneg.mat, 1, prod))
+   }
+   if(sum(prob.vec)-1 > 1e-8) stop("Probabilities do not sum to 1.")
+   prob.vec
+ }
+ 
+ 
+ findBlockCP <- function(n, r, Bsize, pc, pt, theta0, theta1){
+   pat.cols <- seq(from=2*n, to=2, by=-Bsize)[-1]
+   qc <- 1-pc
+   qt <- 1-pt
+   prob.vec <- findProbVec(Bsize=Bsize,
+                           pt=pt,
+                           qt=qt,
+                           pc=pc,
+                           qc=qc)
+   # CREATE UNCURTAILED MATRIX
+   mat <- matrix(3, ncol=2*n, nrow=min(n+r+Bsize+2, 2*n+1))
+   rownames(mat) <- 0:(nrow(mat)-1)
+   mat[(n+r+2):nrow(mat),] <- 1 
+   mat[1:(n+r+1),2*n] <- 0 # Fail at end
+   for(i in (n+r+1):1){  
+     for(j in pat.cols){  # Only look every C patients (no need to look at final col)
+       if(i-1<=j){ # Condition: Sm<=m
+         #    browser()
+         #    print(paste("Rows:", i:(i+Bsize), ", Columns: ", j+Bsize, sep=""))
+         #    print(mat[i:(i+Bsize), j+Bsize])
+         mat[i,j] <- ifelse(test=j-(i-1) > n-r+1, yes=0, no=sum(prob.vec*mat[i:(i+Bsize), j+Bsize])) 
+         # IF success is not possible (i.e. [total no. of pats-Xa+Ya-Xb] > n-r+1), THEN set CP to zero. Otherwise, calculate it based on "future" CPs.
+       } 
+     }
+   }
+   for(i in 3:nrow(mat)){
+     mat[i, 1:(i-2)] <- NA
+   }
+   uncurt <- mat
+   ### CREATE CURTAILED MATRIX
+   for(i in (n+r+1):1){  
+     for(j in pat.cols){  # Only look every Bsize patients (no need to look at final col)
+       if(i-1<=j){ # Condition: Sm<=m
+         newcp <- sum(prob.vec*mat[i:(i+Bsize), j+Bsize])
+         if(newcp > theta1) mat[i,j] <- 1
+         if(newcp < theta0) mat[i,j] <- 0
+         if(newcp <= theta1 & newcp >= theta0) mat[i,j] <- newcp
+       } 
+     }
+   }
+   return(mat)
+ }
+ 
+ 
+
+ findBounds <- function(output){
+   Bsize <- output$block
+   mat <- findBlockCP(n=output$n,
+                      r=output$r,
+                      Bsize=output$block,
+                      pc=output$pc,
+                      pt=output$pt,
+                      theta0=output$theta0,
+                      theta1=output$theta1)
+   boundaries <- matrix(NA, nrow=2, ncol=ncol(mat)/Bsize)
+   rownames(boundaries) <- c("lower", "upper")
+   interims <- seq(from=Bsize, to=ncol(mat), by=Bsize)
+   colnames(boundaries) <- paste(interims)
+   for(i in 1:length(interims)){
+     j <- interims[i]
+     lower <- if (any(mat[,j]==0, na.rm=TRUE) ) max(which(mat[,j]==0))-1 else NA
+     upper <- if (any(mat[,j]==1, na.rm=TRUE) ) which.max(mat[,j])-1 else NA
+     # -1 terms to account for the fact that row 1 is equivalent to zero successes.
+     boundaries[, i] <- c(lower, upper) 
+   }
+   return(boundaries)
+ }
+ 
