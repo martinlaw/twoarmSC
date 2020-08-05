@@ -42,8 +42,7 @@ source("1-reproduce-results-functions-find-designs.R")
 ####
 
 
-system.time({
-  des <- findSCdes(nmin=40,
+des <- findSCdes(nmin=40,
                    nmax=48,
                    block.size=8,
                    pc=0.3,
@@ -55,7 +54,6 @@ system.time({
                    bounds="ahern",
                    fixed.r=NULL,
                    max.combns=1e5)
-})
 
 
 ####
@@ -81,7 +79,6 @@ findBounds(des[1, ])
 # findSCdes. Below is an example of parallelised code:
 
 block4.n <- seq(from=16, to=48, by=2)
-
 library(doParallel)
 cores <- detectCores()-2
 registerDoParallel(cores)
