@@ -55,8 +55,8 @@ des <- findSCdes(nmin=40,
                    fixed.r=NULL,
                    max.combns=1e5)
 
-
-####
+ 
+#####
 #
 # function: findBounds
 # 
@@ -68,7 +68,7 @@ des <- findSCdes(nmin=40,
 # Note: "NA" means that there is no stopping boundary at that point. If there is no lower or
 # upper stopping boundary, no interim analysis need take place.
 #
-####
+#####
 
 findBounds(des[1, ])
 
