@@ -34,14 +34,14 @@ j <- 1
 registerDoParallel(cores)
 timerow1.to60.1e6.noskip <- system.time({
   row1.to60.1e6.noskip <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] # 45mins for 8 to 50, 1e5 combns; 12 hours for 1e6
 stopImplicitCluster()
 registerDoParallel(cores)
 timerow1.to60.1e6.noskip.block8 <- system.time({
   row1.to60.1e6.noskip.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -51,7 +51,7 @@ j <- 2
 registerDoParallel(cores)
 timerow2.to60.1e6.noskip <- system.time({
   row2.to60.1e6.noskip <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -59,7 +59,7 @@ stopImplicitCluster()
 registerDoParallel(cores)
 timerow2.to60.1e6.noskip.block8 <- system.time({
   row2.to60.1e6.noskip.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -69,14 +69,14 @@ j <- 3
 registerDoParallel(cores)
 timerow3.to60.1e6.noskip <- system.time({
   row3.to60.1e6.noskip <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
 registerDoParallel(cores)
 timerow3.to60.1e6.noskip.block8 <- system.time({
   row3.to60.1e6.noskip.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -86,14 +86,14 @@ j <- 4
 registerDoParallel(cores)
 timerow4.to60.1e6.noskip <- system.time({
   row4.to60.1e6.noskip <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
 registerDoParallel(cores)
 timerow4.to60.1e6.noskip.block8 <- system.time({
   row4.to60.1e6.noskip.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -103,14 +103,14 @@ j <- 5
 registerDoParallel(cores)
 timerow5.to60.1e6.noskip <- system.time({
   row5.to60.1e6.noskip <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
 registerDoParallel(cores)
 timerow5.to60.1e6.noskip.block8 <- system.time({
   row5.to60.1e6.noskip.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=pc[j], pt=pt[j], alpha=0.15, power=0.8, maxtheta0=pt[j], mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 })[3] 
 stopImplicitCluster()
@@ -419,10 +419,10 @@ block8.n <- seq(from=8, to=100, by=4)
 max.combns <- 1e5
 
   ex1.100.1e5 <- foreach(i=block2.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=2, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=2, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
   ex1.100.1e5.block8 <- foreach(i=block8.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i, nmax=i, block.size=8, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds="ahern", max.combns=max.combns)
+    findSCdesSlow(nmin=i, nmax=i, block.size=8, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds="ahern", max.combns=max.combns)
   }
 
 ex1.100.1e5 <- rmDominatedDesigns(ex1.100.1e5, n = "eff.n")
@@ -588,7 +588,7 @@ rownames(ex1.df) <- paste(ex1.df$design, ex1.df$opt)
 # maxr <- ceiling(64*0.85)
 # time.ex1.100.1e5 <- system.time({
 #   check <- foreach(i=1:maxr, .combine = rbind) %dopar% {
-#     findSCdes(nmin=62, nmax=65, block.size=2, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds=NULL, fixed.r=i, max.combns=1e5)
+#     findSCdesSlow(nmin=62, nmax=65, block.size=2, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds=NULL, fixed.r=i, max.combns=1e5)
 #   }
 # })[3]
 # stopImplicitCluster()
@@ -598,7 +598,7 @@ rownames(ex1.df) <- paste(ex1.df$design, ex1.df$opt)
 # registerDoParallel(cores)
 # time.ex1.100.1e5 <- system.time({
 #   check.block8 <- foreach(i=1:maxr, .combine = rbind) %dopar% {
-#     findSCdes(nmin=60, nmax=64, block.size=8, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds=NULL, fixed.r=i, max.combns=1e5)
+#     findSCdesSlow(nmin=60, nmax=64, block.size=8, pc=0.7, pt=0.85, alpha=0.15, power=0.8, maxtheta0=0.85, mintheta1=0.7, bounds=NULL, fixed.r=i, max.combns=1e5)
 #   }
 # })[3]
 # stopImplicitCluster()

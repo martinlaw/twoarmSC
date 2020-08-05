@@ -1,6 +1,8 @@
 ####
 #### These functions are used to run the code that finds the designs used.
-#### The main function, used to find designs, is findSCdes.
+#### The function used to find designs in the manuscript is findSCdesSlow.
+#### However, a faster command, findSCdes, finds stochastically curtailed designs 
+#### more quickly (10x) at the expense of potentially missing some designs.
 ####
    
 rmDominatedDesigns <- function(df, essh0="EssH0", essh1="Ess", n="n"){
@@ -222,7 +224,7 @@ return(data.frame(n=n, r=r, Bsize=Bsize, typeIerr=typeIerr, pwr=pwr, EssH0=essH0
 
 
 
-findSCdes <- function(nmin,
+findSCdesSlow <- function(nmin,
                       nmax,
                       block.size,
                       pc,
@@ -504,7 +506,18 @@ findSCdes <- function(nmin,
 
 
 
-find2armBlockDesigns <- function(nmin, nmax, block.size, pc, pt, alpha, power, maxtheta0=NULL, mintheta1=0.7, bounds=NULL, fixed.r=NULL, max.combns=1e6)
+findSCdes <- function(nmin,
+                      nmax,
+                      block.size,
+                      pc,
+                      pt,
+                      alpha,
+                      power,
+                      maxtheta0=NULL,
+                      mintheta1=0.7,
+                      bounds=NULL,
+                      fixed.r=NULL,
+                      max.combns=1e6)
 {
 require(tcltk)
 require(data.table)
@@ -781,8 +794,9 @@ if(max.combns!=Inf){
     # Remove duplicates:
     duplicates <- duplicated(subset.results[, c("n", "EssH0", "Ess"), drop=FALSE])
     admissible.ds <- subset.results[!duplicates,,drop=FALSE]
-    looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
-    admissible.ds <- cbind(admissible.ds, looks)
+    admissible.ds$looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
+    admissible.ds$pc <- rep(pc, nrow(admissible.ds))
+    admissible.ds$pt <- rep(pt, nrow(admissible.ds))
     return(admissible.ds)
   }
 }

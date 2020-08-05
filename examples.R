@@ -4,7 +4,7 @@ source("1-reproduce-results-functions-find-designs.R")
 #
 # function: findSCdes
 #
-# findSCdes is the function used to find designs. Arguments:
+# findSCdes is used to find stochastically curtailed designs. Arguments:
 #
 # nmin, nmax:   min and max sample size per arm to search over.
 # pc, pt:       anticipated response rates on control and treatment arms.
@@ -41,19 +41,20 @@ source("1-reproduce-results-functions-find-designs.R")
 #
 ####
 
+
 system.time({
-des <- findSCdes(nmin=40,
-          nmax=44,
-          block.size=8,
-          pc=0.3,
-          pt=0.5,
-          alpha=0.15,
-          power=0.8,
-          maxtheta0=0.5,
-          mintheta1=0.9,
-          bounds="ahern",
-          fixed.r=NULL,
-          max.combns=1e5)
+  des <- findSCdes(nmin=40,
+                   nmax=48,
+                   block.size=8,
+                   pc=0.3,
+                   pt=0.5,
+                   alpha=0.15,
+                   power=0.8,
+                   maxtheta0=0.5,
+                   mintheta1=0.9,
+                   bounds="ahern",
+                   fixed.r=NULL,
+                   max.combns=1e5)
 })
 
 
@@ -61,8 +62,8 @@ des <- findSCdes(nmin=40,
 #
 # function: findBounds
 # 
-# findBounds is used to obtain the stopping boundaries of a design found using findSCdes.
-# It takes a single argument: a single design, i.e. single row from the output of findSCdes.
+# findBounds is used to obtain the stopping boundaries of a design.
+# It takes a single argument: a single design, i.e. single row from the output of findSCdes or findSCdesFast.
 # The output is a dataframe containing the lower and upper stopping boundaries in terms of
 # number of successes so far, i.e. responses on treatment arm plus non-responses on control arm.
 # 
@@ -71,13 +72,13 @@ des <- findSCdes(nmin=40,
 #
 ####
 
-boundaries <- findBounds(des[1,])
+findBounds(des[1, ])
 
 
-
-
-
-# Parallelisation is strongly recommended. Below is an example of parallelised code:
+# The results in the manuscript were found using a slower command, findSCdesSlow, which
+# may find slightly more designs at the expense of speed. If using findSCdesSlow,
+# parallelisation is strongly recommended. Parallelisation can also be used with
+# findSCdes. Below is an example of parallelised code:
 
 block4.n <- seq(from=16, to=48, by=2)
 
@@ -86,15 +87,17 @@ cores <- detectCores()-2
 registerDoParallel(cores)
 
 results.par <- foreach(i=block4.n, .combine = rbind) %dopar% {
-  findSCdes(nmin=i,
-            nmax=i,
-            block.size=4,
-            pc=0.3,
-            pt=0.5,
-            alpha=0.15,
-            power=0.8,
-            maxtheta0=0.5,
-            mintheta1=0.9,
-            bounds="ahern",
-            max.combns=1e5)
-} # Approx. 15 minutes using 20 cores.
+    findSCdes(nmin=i,
+              nmax=i,
+              block.size=4,
+              pc=0.3,
+              pt=0.5,
+              alpha=0.15,
+              power=0.8,
+              maxtheta0=0.5,
+              mintheta1=0.9,
+              bounds="ahern",
+              max.combns=1e5)
+  } # Approx 40 secs using 20 cores.
+
+findBounds(results.par[2, ])
