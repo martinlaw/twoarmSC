@@ -295,3 +295,192 @@ design <- getDesignGroupSequential(sided = 1, alpha = 0.15, beta = 0.2,
 # asOF : alpha spending O'Brien & Fleming
 # bsOF : beta spending O'Brien & Fleming
 ss <- getSampleSizeRates(design, pi2 = 0.3, pi1 = 0.5)
+
+
+
+### Comparison of sample size for Simon's design, single-stage single-arm design and single-stage two-arm dseign:
+library(clinfun)
+
+# Table 2:
+ph2simon(pu = 0.3, pa = 0.5, ep1 = 0.15, ep2 = 0.2)
+# H0-optimal: E(N)=17
+power.prop.test(p1 = 0.3, p2 = 0.5, sig.level = 0.15, power = .80, alternative = "two.sided")
+# Two-arm TWO-SIDED: E(N)=N=124
+power.prop.test(p1 = 0.3, p2 = 0.5, sig.level = 0.15, power = .80, alternative = "one.sided")
+# Two-arm ONE-SIDED: E(N)=N=84
+mean(c(17, 84))
+# 50.5
+mean(c(25.1, 84))
+# 54.55
+mean(c(17.6, 84))
+# 50.8
+mean(c(20.6, 84))
+# 52.3
+
+# Single arm:
+ph2single(pu = 0.3, pa = 0.5, ep1 = 0.15, ep2 = 0.2) # n=21
+mean(c(21, 84))
+# 52.5
+
+source("singlearmSC/findSimonN1N2R1R2.R")
+source("singlearmSC/findSimonDesigns.R")
+
+ph2simon(pu = 0.7, pa = 0.85, ep1 = 0.15, ep2 = 0.2)
+# H0-optimal: E(N)=20.7
+power.prop.test(p1 = 0.7, p2 = 0.85, sig.level = 0.15, power = .80, alternative = "two.sided")
+# Two-arm TWO-SIDED: E(N)=N=160
+power.prop.test(p1 = 0.7, p2 = 0.85, sig.level = 0.15, power = .80, alternative = "one.sided")
+# Two-arm ONE-SIDED: E(N)=N=108
+mean(c(21, 108))
+# 64.5
+mean(c(26.5, 108))
+# 67.25
+mean(c(28.4, 108))
+# 68.2
+
+# Single arm:
+ph2single(pu = 0.7, pa = 0.85, ep1 = 0.15, ep2 = 0.2) # n=31
+mean(c(31, 108))
+# 69.5
+
+
+
+# Find minimum sample size for obtained designs: #####
+source("returnCPmat.R")
+#load("H:/PhD/twoarm/tidy_block_results.RData")
+#load("tidy_block_results.RData")
+findMinN <- function(df, opt, p0, p1){
+  if(opt=="h0opt"){    des <- df[which.min(df$EssH0),]  }
+  if(opt=="h1opt"){    des <- df[which.min(df$Ess),]  }
+  if(opt=="h0mini"){   des <- df[order(df$n, df$EssH0),][1,]  }
+  if(opt=="h1mini"){   des <- df[order(df$n, df$Ess),][1,]  }
+  cpmat <- returnCPmat(n = des$n, r = des$r, Bsize = des$block, pc = p0, pt = p1, theta0 = des$theta0, theta1 = des$theta1, alpha = 0.15, power = 0.8) 
+  first.row <- cpmat[1,]
+  minN <- which.min(first.row)
+  minN
+}
+
+p0 <- c(0.1, 0.2, 0.3, 0.4, 0.5)
+p1 <- p0+0.2
+minN.block2 <- matrix(NA, nrow=5, ncol=4)
+colnames(minN.block2) <- c("h0opt", "h1opt", "h0mini", "h1mini")
+for(i in 1:5){
+  minN.block2[i,] <- c(findMinN(block2.1e6[[i]], "h0opt", p0=p0[i], p1=p1[i]),
+                       findMinN(block2.1e6[[i]], "h1opt", p0=p0[i], p1=p1[i]),
+                       findMinN(block2.1e6[[i]], "h0mini", p0=p0[i], p1=p1[i]),
+                       findMinN(block2.1e6[[i]], "h1mini", p0=p0[i], p1=p1[i])
+                       )
+}
+median(minN.block2)
+quantile(minN.block2, 0.25)
+quantile(minN.block2, 0.75)
+
+minN.block8 <- matrix(NA, nrow=5, ncol=4)
+colnames(minN.block8) <- c("h0opt", "h1opt", "h0mini", "h1mini")
+for(i in 1:5){
+  minN.block8[i,] <- c(findMinN(block8.1e6[[i]], "h0opt", p0=p0[i], p1=p1[i]),
+                       findMinN(block8.1e6[[i]], "h1opt", p0=p0[i], p1=p1[i]),
+                       findMinN(block8.1e6[[i]], "h0mini",p0=p0[i], p1=p1[i]),
+                       findMinN(block8.1e6[[i]], "h1mini",p0=p0[i], p1=p1[i])
+                       )
+}
+median(minN.block8)
+quantile(minN.block8, 0.25)
+quantile(minN.block8, 0.75)
+
+
+
+# Plot thetaF vs thetaE for all feasible designs: ####
+system.time({
+  n40 <- findSCdes(nmin=20,
+                   nmax=20,
+                   pc=0.1,
+                   pt=0.4,
+                   alpha=0.15,
+                   power=0.8,
+                   maxtheta0=0.4,
+                   mintheta1=0.7,
+                   bounds=NULL,
+                   fixed.r=3,
+                   block.size = 2,
+                   max.combns=1e6,
+                   rm.dominated.designs = FALSE)
+}) # 1 min for 1e6
+n40.best <- rmDominatedDesigns(df=n40)
+
+system.time({
+  n60 <- findSCdes(nmin=30,
+                   nmax=30,
+                   pc=0.1,
+                   pt=0.4,
+                   alpha=0.15,
+                   power=0.8,
+                   maxtheta0=0.4,
+                   mintheta1=0.7,
+                   bounds=NULL,
+                   fixed.r=5,
+                   block.size = 2,
+                   max.combns=1e6,
+                   rm.dominated.designs = FALSE)
+}) # 30secs for 1e4, 2mins for 1e5, 6mins/500secs for 1e6
+n60.best <- rmDominatedDesigns(df=n60)
+
+# pdf(file="figs/thetaF_vs_thetaE_ESS0_n40_2.pdf", width = 8, height = 7)
+# plotFeasible(n40, criterion = 0)
+# dev.off()
+# pdf(file="figs/thetaF_vs_thetaE_ESS1_n40_2.pdf", width = 8, height = 7)
+# plotFeasible(n40, criterion = 1)
+# dev.off()
+# pdf(file="figs/thetaF_vs_thetaE_ESS0_n60_2.pdf", width = 8, height = 7)
+# plotFeasible(n60, criterion = 0)
+# dev.off()
+# pdf(file="figs/thetaF_vs_thetaE_ESS1_n60_2.pdf", width = 8, height = 7)
+# plotFeasible(n60, criterion = 1)
+# dev.off()
+
+
+# Plot rejection regions for Carsten and for proposed design: ####
+system.time({
+  n40.fast <- find2armBlockDesigns(nmin=20,
+                                   nmax=20,
+                                   pc=0.1,
+                                   pt=0.4,
+                                   alpha=0.15,
+                                   power=0.8,
+                                   maxtheta0=0.4,
+                                   mintheta1=0.7,
+                                   bounds=NULL,
+                                   fixed.r=3,
+                                   block.size = 2,
+                                   max.combns=1e6)
+}) # 6 secs for 1e6
+
+system.time({
+  n60.fast <- find2armBlockDesigns(nmin=30,
+                                   nmax=30,
+                                   pc=0.1,
+                                   pt=0.4,
+                                   alpha=0.15,
+                                   power=0.8,
+                                   maxtheta0=0.4,
+                                   mintheta1=0.7,
+                                   bounds=NULL,
+                                   fixed.r=5,
+                                   block.size = 2,
+                                   max.combns=1e6)
+}) # 10 secs for 1e5, 35 secs for 1e6
+
+n40.best
+n40.fast
+n60.best
+n60.fast
+
+rej.region.carsten <- findRejectionRegions(n=list(20, 34), r=list(4, 10), pc=0.3, pt=0.5, method="carsten")
+rej.region.block2 <- findRejectionRegions(n=40, r=4, pc=0.3, pt=0.5, method="block", theta0 = 0.04276781, theta1 = 0.9841904)
+
+# pdf("figs/rejection_region_carsten.pdf", width = 7, height = 7)
+# plotRejectionRegions(rej.region.carsten, "carsten")
+# dev.off()
+# pdf("figs/rejection_region_block3.pdf", width = 7, height = 7)
+# plotRejectionRegions(rej.region.block2, "block")
+# dev.off()

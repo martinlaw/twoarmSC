@@ -1,8 +1,6 @@
 ####
 #### These functions are used to run the code that finds the designs used.
-#### The function used to find designs in the manuscript is findSCdesSlow.
-#### However, a faster command, findSCdes, finds stochastically curtailed designs 
-#### more quickly (10x) at the expense of potentially missing some designs.
+#### The main function, used to find designs, is findSCdes.
 ####
    
 rmDominatedDesigns <- function(df, essh0="EssH0", essh1="Ess", n="n"){
@@ -224,7 +222,7 @@ return(data.frame(n=n, r=r, Bsize=Bsize, typeIerr=typeIerr, pwr=pwr, EssH0=essH0
 
 
 
-findSCdesSlow <- function(nmin,
+findSCdes <- function(nmin,
                       nmax,
                       block.size,
                       pc,
@@ -235,7 +233,10 @@ findSCdesSlow <- function(nmin,
                       mintheta1=0.7,
                       bounds="ahern",
                       fixed.r=NULL,
-                      max.combns=1e6)
+                      max.combns=1e6,
+                      rm.dominated.designs=TRUE,
+                      exact.theta0=NULL,
+                      exact.theta1=NULL)
 ####
 # Main function, used to find designs. Arguments:
 # nmin, nmax: min and max total sample size to search over.
@@ -369,7 +370,7 @@ findSCdesSlow <- function(nmin,
   
   ###### Find thetas for each possible {r, N} combn:
   
-  
+
   mat.list <- vector("list", nrow(sc.subset))
   
   for(i in 1:nrow(sc.subset)){
@@ -383,6 +384,7 @@ findSCdesSlow <- function(nmin,
   ##### max.combns:=max. number of (theta0, theta1) combinations.
   ##### n.thetas*(n.thetas-1)/2 = n.combns, so if n.thetas > sqrt(2*max.combns), take out every other value, excluding 0 and 1.
   ##### Note: further below, more combns are removed if constraints on maxtheta0 and mintheta1 are specified.
+  # check ####
   if(max.combns!=Inf){
     maxthetas <- sqrt(2*max.combns)
     for(i in 1:nrow(sc.subset))
@@ -403,16 +405,15 @@ findSCdesSlow <- function(nmin,
     all.theta.combns[[i]] <- all.theta.combns[[i]][order(all.theta.combns[[i]][,2], decreasing=T),]
   }
   
-  ############################ NOT USED FOR TWO-ARM CASE
-  # ##### Matrix of coefficients: Probability of a SINGLE path leading to each point:
-  # coeffs <- matrix(NA, ncol=nmax, nrow=nmax+1)
-  # coeffs.pc <- coeffs
-  # 
-  # for(i in 1:(nmax+1)){
-  #   coeffs[i, ] <- pt^(i-1) * q1^((2-i):(2-i+nmax-1))
-  #   coeffs.pc[i, ] <- pc^(i-1) * q0^((2-i):(2-i+nmax-1))
-  # }
+  #browser()
   
+  if(!is.null(exact.theta0)){ # if exact thetas are given (to speed up a result check):
+    for(i in 1:length(store.all.thetas)){
+      keep <- abs(store.all.thetas[[i]]-exact.theta0)<1e-3 | abs(store.all.thetas[[i]]-exact.theta1)<1e-3
+      store.all.thetas[[i]] <- store.all.thetas[[i]][keep]
+    }
+    all.theta.combns <- lapply(store.all.thetas, function(x) {t(combn(x, 2)) })
+  }
   
   h.results.list <- vector("list", nrow(sc.subset)) # 
   
@@ -448,7 +449,7 @@ findSCdesSlow <- function(nmin,
       for(m in 1:nrow(theta0s.current)){
         #if(as.numeric(theta0s.current[m])<0.24  & as.numeric(theta0s.current[m])>0.23 & all.thetas[i]<0.74 & all.thetas[i]>0.73) browser()
         
-        # print(paste(sc.subset$n[h], sc.subset$r[h], as.numeric(theta0s.current[m]), all.thetas[i]), q=F)
+        #print(paste(sc.subset$n[h], sc.subset$r[h], as.numeric(theta0s.current[m]), all.thetas[i]), q=F)
         h.results[[k]] <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=as.numeric(theta0s.current[m]), theta1=all.thetas[i], mat=mat.list[[h]],
                                            power=power, alpha=alpha, pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
         k <- k+1
@@ -477,20 +478,21 @@ findSCdesSlow <- function(nmin,
   full.results <- do.call(rbind, h.results.list)
   #if(length(full.results)==0) stop("There are no feasible designs for this combination of design parameters" , call. = FALSE)
   if(length(full.results)>0){
-    # Discard all "inferior" designs:
-    discard <- rep(NA, nrow(full.results))
-    for(i in 1:nrow(full.results))
-    {
-      discard[i] <- sum(full.results[i, "EssH0"] > full.results[, "EssH0"] & full.results[i, "Ess"] > full.results[, "Ess"] & full.results[i, "n"] >= full.results[, "n"])
-      #print(i)
+    if(rm.dominated.designs==TRUE){
+      # Discard all "inferior" designs:
+      discard <- rep(NA, nrow(full.results))
+      for(i in 1:nrow(full.results))
+      {
+        discard[i] <- sum(full.results[i, "EssH0"] > full.results[, "EssH0"] & full.results[i, "Ess"] > full.results[, "Ess"] & full.results[i, "n"] >= full.results[, "n"])
+        #print(i)
+      }
+      full.results <- full.results[discard==0,,drop=FALSE]
     }
-    
-    subset.results <- full.results[discard==0,,drop=FALSE]
     
     
     # Remove duplicates:
-    duplicates <- duplicated(subset.results[, c("n", "EssH0", "Ess"), drop=FALSE])
-    admissible.ds <- subset.results[!duplicates,,drop=FALSE]
+    duplicates <- duplicated(full.results[, c("n", "EssH0", "Ess"), drop=FALSE])
+    admissible.ds <- full.results[!duplicates,,drop=FALSE]
     admissible.ds$looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
     admissible.ds$pc <- rep(pc, nrow(admissible.ds))
     admissible.ds$pt <- rep(pt, nrow(admissible.ds))
@@ -506,18 +508,7 @@ findSCdesSlow <- function(nmin,
 
 
 
-findSCdes <- function(nmin,
-                      nmax,
-                      block.size,
-                      pc,
-                      pt,
-                      alpha,
-                      power,
-                      maxtheta0=NULL,
-                      mintheta1=0.7,
-                      bounds=NULL,
-                      fixed.r=NULL,
-                      max.combns=1e6)
+find2armBlockDesigns <- function(nmin, nmax, block.size, pc, pt, alpha, power, maxtheta0=NULL, mintheta1=0.7, bounds=NULL, fixed.r=NULL, max.combns=1e6)
 {
 require(tcltk)
 require(data.table)
@@ -650,6 +641,7 @@ store.all.thetas <- lapply(mat.list, function(x) {sort(unique(c(x))[unique(c(x))
 ##### max.combns:=max. number of (theta0, theta1) combinations.
 ##### n.thetas*(n.thetas-1)/2 = n.combns, so if n.thetas > sqrt(2*max.combns), take out every other value, excluding 0 and 1.
 ##### Note: further below, more combns are removed if constraints on maxtheta0 and mintheta1 are specified.
+# check ####
 if(max.combns!=Inf){
   maxthetas <- sqrt(2*max.combns)
   for(i in 1:nrow(sc.subset))
@@ -661,17 +653,6 @@ if(max.combns!=Inf){
     }
   }
 }
-  
-############################ NOT USED FOR TWO-ARM CASE
-  # ##### Matrix of coefficients: Probability of a SINGLE path leading to each point:
-  # coeffs <- matrix(NA, ncol=nmax, nrow=nmax+1)
-  # coeffs.pc <- coeffs
-  # 
-  # for(i in 1:(nmax+1)){
-  #   coeffs[i, ] <- pt^(i-1) * q1^((2-i):(2-i+nmax-1))
-  #   coeffs.pc[i, ] <- pc^(i-1) * q0^((2-i):(2-i+nmax-1))
-  # }
-
   
   h.results.list <- vector("list", nrow(sc.subset)) # 
   
@@ -687,7 +668,7 @@ if(max.combns!=Inf){
     
     theta0.vec <- store.all.thetas[[h]][store.all.thetas[[h]]<=maxtheta0]
     theta1.vec <- store.all.thetas[[h]][store.all.thetas[[h]]>=mintheta1]
-     
+   # print(store.all.thetas[[h]]) 
     h.results <- vector("list", length(theta0.vec)*length(theta1.vec)) 
 
     blank.mat <- matrix(NA, nrow=nrow(mat.list[[h]]), ncol=ncol(mat.list[[h]]))
@@ -710,7 +691,7 @@ if(max.combns!=Inf){
     mintheta0 <- NA
     maxtheta1 <- NA
     while(min((b0-a0),(b1-a1))>1 & is.na(mintheta0)){ # Break/move on when bisection method fails to find anything OR when final feasible design is found.
-       # print(paste(theta0.vec[d0], theta1.vec[d1]), q=F)
+      #  print(paste(theta0.vec[d0], theta1.vec[d1]), q=F)
         output <- find2armBlockOCs(n=sc.subset$n[h], r=sc.subset$r[h], Bsize=Bsize, theta0=theta0.vec[d0], theta1=theta1.vec[d1], mat=mat.list[[h]],  power=power, alpha=alpha,
                                    pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
 
@@ -794,9 +775,8 @@ if(max.combns!=Inf){
     # Remove duplicates:
     duplicates <- duplicated(subset.results[, c("n", "EssH0", "Ess"), drop=FALSE])
     admissible.ds <- subset.results[!duplicates,,drop=FALSE]
-    admissible.ds$looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
-    admissible.ds$pc <- rep(pc, nrow(admissible.ds))
-    admissible.ds$pt <- rep(pt, nrow(admissible.ds))
+    looks <- admissible.ds[,"eff.n"]/admissible.ds[,"block"]
+    admissible.ds <- cbind(admissible.ds, looks)
     return(admissible.ds)
   }
 }
@@ -1300,3 +1280,147 @@ return(all.results)
    return(boundaries)
  }
  
+ 
+ # Plot rejection regions ####
+ # Write a program that will find the sample size using our design and Carsten's design, for a given set of data #
+ 
+ # for p0=0.1, p1=0.3, alpha=0.15, power=0.8, h0-optimal designs are:
+ # Carsten: 
+ # n1=7; n=16; r1=1; r2=3
+ # This design should have the following OCs:
+ # Type I error: 0.148, Power: 0.809, EssH0: 21.27400, EssH1: 19.44200
+ #
+ # Our design (not strictly H0-optimal, but is within 0.5 of optimal wrt EssH0 and has N=31, vs N=71 for the actual H0-optimal):
+ # n=31; r2=3; theta0=0.1277766; theta1=0.9300000
+ 
+ findRejectionRegions <- function(n, r, theta0=NULL, theta1=NULL, pc, pt, method=NULL){
+   ########## Function to find CP matrix for our design:
+   findBlockCP <- function(n, r, pc, pt, theta0, theta1){
+     Bsize <- 2
+     pat.cols <- seq(from=2*n, to=2, by=-2)[-1]
+     qc <- 1-pc
+     qt <- 1-pt
+     prob0 <- qt*pc
+     prob1 <- pt*pc + qt*qc
+     prob2 <- pt*qc
+     prob.vec <- c(prob0, prob1, prob2)
+     
+     ########## CREATE UNCURTAILED MATRIX
+     mat <- matrix(3, ncol=2*n, nrow=min(n+r+Bsize+2, 2*n+1))
+     rownames(mat) <- 0:(nrow(mat)-1)
+     mat[(n+r+2):nrow(mat),] <- 1 
+     mat[1:(n+r+1),2*n] <- 0 # Fail at end
+     
+     for(i in (n+r+1):1){  
+       for(j in pat.cols){  # Only look every C patients (no need to look at final col)
+         if(i-1<=j){ # Condition: Sm<=m
+           mat[i,j] <- ifelse(test=j-(i-1) > n-r+1, yes=0, no=sum(prob.vec*mat[i:(i+Bsize), j+Bsize])) #### TYPO FOUND MAY 9TH 2019: "n-r-1" changed to "n-r+1" 
+           # IF success is not possible (i.e. [total no. of pats-Xa+Ya-Xb] > n-r+1), THEN set CP to zero. Otherwise, calculate it based on "future" CPs.
+         } 
+       }
+     }
+     
+     for(i in 3:nrow(mat)){
+       mat[i, 1:(i-2)] <- NA
+     }
+     uncurt <- mat
+     
+     ########## CREATE CURTAILED MATRIX
+     for(i in (n+r+1):1){  
+       for(j in pat.cols){  # Only look every Bsize patients (no need to look at final col)
+         if(i-1<=j){ # Condition: Sm<=m
+           newcp <- sum(prob.vec*mat[i:(i+Bsize), j+Bsize])
+           if(newcp > theta1) mat[i,j] <- 1
+           if(newcp < theta0) mat[i,j] <- 0
+           if(newcp <= theta1 & newcp >= theta0) mat[i,j] <- newcp
+         } 
+       }
+     }
+     #return(list(uncurt, mat))
+     return(mat)
+   }
+   
+   ######################## FUNCTION TO FIND BASIC CP MATRIX (CP=0/1/neither) FOR CARSTEN
+   carstenCPonly <- function(n1, n, r1, r, pair=FALSE){
+     cpmat <- matrix(0.5, ncol=2*n, nrow=r+1)
+     rownames(cpmat) <- 0:(nrow(cpmat)-1)
+     cpmat[r+1, (2*r):(2*n)] <- 1 # Success is a PAIR of results s.t. Xt-Xc=1
+     cpmat[1:r,2*n] <- 0 # Fail at end
+     pat.cols <- seq(from=(2*n)-2, to=2, by=-2)
+     for(i in nrow(cpmat):1){  
+       for(j in pat.cols){  # Only look every C patients (no need to look at final col)
+         if(i-1<=j/2){ # Condition: number of successes must be <= pairs of patients so far
+           # IF success is not possible (i.e. [total no. of failures] > n1-r1+1 at stage 1 or [total no. of failures] > n-r+1), THEN set CP to zero:
+           if((i<=r1 & j/2 - (i-1) >= n1-r1+1) | (j/2-(i-1) >= n-r+1)){
+             cpmat[i,j] <- 0
+           }
+         } else{
+           cpmat[i,j] <- NA # impossible to have more successes than pairs
+         }
+       }
+     }
+     if(pair==TRUE){
+       cpmat <- cpmat[, seq(2, ncol(cpmat), by=2)]
+     }
+     return(cpmat)
+   }
+
+   #### Find CPs for block and Carsten designs:
+   if(method=="block"){
+     block.mat <- findBlockCP(n=n, r=r, pc=pc, pt=pt, theta0=theta0, theta1=theta1)
+     #### Find lower and upper stopping boundaries for block and Carsten designs:
+     lower <- rep(-Inf, ncol(block.mat)/2)
+     upper <- rep(Inf, ncol(block.mat)/2)
+     looks <- seq(2, ncol(block.mat), by=2)
+     for(j in 1:length(looks)){
+       if(any(block.mat[,looks[j]]==0, na.rm = T)){
+         lower[j] <- max(which(block.mat[,looks[j]]==0))-1 # Minus 1 to account for row i == [number of responses-1]
+       } 
+       if(any(block.mat[,looks[j]]==1, na.rm = T)){
+         upper[j] <- which.max(block.mat[,looks[j]])-1 # Minus 1 to account for row i == [number of responses-1]
+       }
+     }
+     
+     m.list <- vector("list", max(looks))
+     for(i in 1:length(looks)){
+       m.list[[i]] <- data.frame(m=looks[i], successes=0:max(looks), outcome=NA)
+       m.list[[i]]$outcome[m.list[[i]]$successes <= lower[i]] <- "No go"
+       m.list[[i]]$outcome[m.list[[i]]$successes >= lower[i]+1 & m.list[[i]]$successes <= upper[i]-1] <- "Continue"
+       m.list[[i]]$outcome[m.list[[i]]$successes >= upper[i] & m.list[[i]]$successes <= looks[i]] <- "Go"
+       m.list[[i]]$outcome[m.list[[i]]$successes > looks[i]] <- NA
+     }
+   }
+   
+   if(method=="carsten"){
+     carsten.mat <- carstenCPonly(n1=n[[1]], n=n[[2]], r1=r[[1]], r=r[[2]], pair=F)
+     #### Find lower and upper stopping boundaries for block and Carsten designs:
+     lower.carsten <- rep(-Inf, ncol(carsten.mat)/2)
+     upper.carsten <- rep(Inf, ncol(carsten.mat)/2)
+     looks.carsten <- seq(2, ncol(carsten.mat), by=2)
+     for(j in 1:length(looks.carsten)){
+       if(any(carsten.mat[,looks.carsten[j]]==0, na.rm = T)){
+         lower.carsten[j] <- max(which(carsten.mat[,looks.carsten[j]]==0))-1 # Minus 1 to account for row i == [number of responses-1]
+       } 
+       if(any(carsten.mat[,looks.carsten[j]]==1, na.rm = T)){
+         upper.carsten[j] <- which.max(carsten.mat[,looks.carsten[j]])-1 # Minus 1 to account for row i == [number of responses-1]
+       }
+     }
+     looks <- looks.carsten
+     lower <- lower.carsten
+     upper <- upper.carsten
+     
+     m.list <- vector("list", max(looks))
+     for(i in 1:length(looks)){
+       m.list[[i]] <- data.frame(m=looks[i], successes=0:(max(looks)/2), outcome=NA)
+       m.list[[i]]$outcome[m.list[[i]]$successes <= lower[i]] <- "No go"
+       m.list[[i]]$outcome[m.list[[i]]$successes >= lower[i]+1 & m.list[[i]]$successes <= upper[i]-1] <- "Continue"
+       m.list[[i]]$outcome[m.list[[i]]$successes >= upper[i] & m.list[[i]]$successes <= looks[i]/2] <- "Go"
+       m.list[[i]]$outcome[m.list[[i]]$successes > looks[i]/2] <- NA
+     }
+   }
+   
+   m.df <- do.call(rbind, m.list)
+   m.df <- m.df[!is.na(m.df$outcome), ]
+   return(m.df)
+ }
+

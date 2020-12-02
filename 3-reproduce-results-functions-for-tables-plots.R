@@ -385,3 +385,52 @@ rejectionRegions <- function(n, r, theta0=NULL, theta1=NULL, pc, pt, method=NULL
 }
 
 ##################### END OF SECTION 3.2 ###################
+
+
+# Plot thetaE, thetaF of all feasible designs ####
+plotFeasible <- function(df, criterion=0){
+  library(ggplot2)
+  theme_set(theme_bw(base_size = 20)) # Increase font size and set theme for plots.
+  plt <- ggplot(data=df,
+                aes(x = theta0, y = theta1))
+  if(criterion==0){
+    main.text <- expression(paste(theta[F], ", ", theta[E], " and ESS(", p[0], ", ", p[0], ") for all feasible designs"))
+    legend.text <- expression(paste("ESS(", p[0], ", ", p[0], ")"))
+    plt <- plt + geom_point(aes(color=EssH0), size=3)
+  }
+  if(criterion==1){
+    main.text <- expression(paste(theta[F], ", ", theta[E], " and ESS(", p[0], ", ", p[1], ") for all feasible designs"))
+    legend.text <- expression(paste("ESS(", p[0], ", ", p[1], ")")) 
+    plt <- plt + geom_point(aes(color=Ess), size=3)
+  }
+  plt <- plt + 
+    labs(title=main.text,
+         x=expression(theta[F]),
+         y=expression(theta[E]),
+         col=legend.text)
+  return(plt)
+}
+
+
+# Plot rejection regions for proposed design and Carsten design: ####
+plotRejectionRegions <- function(data.f, method){
+  library(ggplot2)
+  theme_set(theme_bw(base_size = 20))# Increase font size and set theme for plots.
+  rejection.plot <- ggplot(data.f, aes(m, successes)) +
+    geom_raster(aes(fill = outcome)) +
+    theme(legend.position = c(0.2, 0.8))+
+    labs(fill="Decision")
+  if(method=="carsten"){
+    rejection.plot <- rejection.plot +
+      labs(title="Decision space for Carsten design",
+           x="Participants (total)",
+           y="Successes (pairs)")
+  }
+  if(method=="block"){
+    rejection.plot <- rejection.plot +
+      labs(title="Decision space for block size two",
+           x="Participants (total)",
+           y="Successes (total)")
+  }
+  return(rejection.plot)
+}
