@@ -508,7 +508,18 @@ findSCdes <- function(nmin,
 
 
 
-find2armBlockDesigns <- function(nmin, nmax, block.size, pc, pt, alpha, power, maxtheta0=NULL, mintheta1=0.7, bounds=NULL, fixed.r=NULL, max.combns=1e6)
+find2armBlockDesigns <- function(nmin,
+                                 nmax,
+                                 block.size,
+                                 pc,
+                                 pt,
+                                 alpha,
+                                 power,
+                                 maxtheta0=NULL,
+                                 mintheta1=0.7,
+                                 bounds=NULL,
+                                 fixed.r=NULL,
+                                 max.combns=1e6)
 {
 require(tcltk)
 require(data.table)
@@ -658,7 +669,6 @@ if(max.combns!=Inf){
   
   pb <- txtProgressBar(min = 0, max = nrow(sc.subset), style = 3)
   
-
   # Now, find the designs, looping over each possible {r, N} combination, and within each {r, N} combination, loop over all combns of {theta0, theta1}:
   for(h in 1:nrow(sc.subset)){
     k <- 1
@@ -1424,3 +1434,99 @@ return(all.results)
    return(m.df)
  }
 
+slowSearch <- function(thetas,
+                       maxtheta0,
+                       mintheta1,
+                       sc.h,
+                       Bsize,
+                       mat.h,
+                       blank.mat,
+                       zero.mat,
+                       power,
+                       alpha,
+                       pat.cols.single,
+                       prob.vec,
+                       prob.vec.p0
+                       ){
+  k <- 1
+  h.results <- vector("list", ceiling(0.5*length(thetas)^2))
+  all.thetas <- rev(thetas)[-length(thetas)] # All theta1 values, decreasing, not including the final value, theta1=0.
+  all.thetas <- all.thetas[all.thetas>=mintheta1]
+  for(i in 1:length(all.thetas)){ # For each theta1, 
+    theta0s.current <- thetas[thetas<all.thetas[i] & thetas<=maxtheta0]
+    for(m in 1:length(theta0s.current)){
+      h.results[[k]] <- find2armBlockOCs(n=sc.h$n, r=sc.h$r, Bsize=Bsize, theta0=as.numeric(theta0s.current[m]), theta1=all.thetas[i], mat=mat.h,
+                                         power=power, alpha=alpha, pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+      k <- k+1
+      # Add lines here: if power decreases below desired value, break:
+      if(h.results[[k-1]][5] < power){
+        break
+      }
+    }
+  } # end of "i" loop
+  return(h.results)
+}
+
+fastSearch <- function(thetas,
+                       maxtheta0,
+                       mintheta1,
+                       sc.h,
+                       Bsize,
+                       mat.h,
+                       blank.mat,
+                       zero.mat,
+                       power,
+                       alpha,
+                       pat.cols.single,
+                       prob.vec,
+                       prob.vec.p0){
+  k <- 1
+  ########### START 2D BISECTION
+  theta0.vec <- thetas[thetas<=maxtheta0]
+  theta1.vec <- thetas[thetas>=mintheta1]
+  h.results <- vector("list", length(theta0.vec)*length(theta1.vec)) 
+  # Bounds for theta0:
+  a0 <- 1
+  b0 <- length(theta0.vec)
+  d0 <- ceiling((b0-a0)/2)
+  # Bounds for theta1:
+  a1 <- 1
+  b1 <- length(theta1.vec)
+  d1 <- ceiling((b1-a1)/2)
+  mintheta0 <- NA
+  maxtheta1 <- NA
+  while(min((b0-a0),(b1-a1))>1 & is.na(mintheta0)){ # Break/move on when bisection method fails to find anything OR when final feasible design is found.
+    output <- find2armBlockOCs(n=sc.h$n, r=sc.h$r, Bsize=Bsize, theta0=theta0.vec[d0], theta1=theta1.vec[d1], mat=mat.h,  power=power, alpha=alpha,
+                               pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+    if(!is.na(output[6])){ # If ESS is not NA, then design IS feasible, and do:
+      feasible <- TRUE
+      maxtheta1 <- theta1.vec[d1]
+      while((feasible==TRUE) & d0<length(theta0.vec)){
+        d0 <- d0+1
+        h.results[[k]] <- find2armBlockOCs(n=sc.h$n, r=sc.h$r, Bsize=Bsize, theta0=theta0.vec[d0], theta1=maxtheta1, mat=mat.h,  power=power, alpha=alpha,
+                                           pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+        feasible <- !is.na(h.results[[k]][6])
+        k <- k+1
+      } # Once the final feasible design for the given theta0/1 is found (or we reach the largest theta0), record theta0 and make it a limit:
+      mintheta0 <- theta0.vec[d0-1]
+    } else { # If design isn't feasible, decrease theta0, increase theta1 and test again: 
+      b0 <- d0
+      a1 <- d1
+      d0 <- a0 + floor((b0-a0)/2)
+      d1 <- a1 + floor((b1-a1)/2)
+    }
+  }
+  if(!is.na(mintheta0)){ # If at least one feasible design was found, then mintheta0 exists, and we search over all theta0/1 combinations subject to the new limits we have just created:
+    theta0.vec <- theta0.vec[theta0.vec>=mintheta0]
+    theta1.vec <- theta1.vec[theta1.vec<=maxtheta1]
+    for(i in 1:length(theta1.vec)){
+      for(j in 1:length(theta0.vec)){
+        #  print(paste(theta0.vec[i], theta1.vec[j]))
+        h.results[[k]] <- find2armBlockOCs(n=sc.h$n, r=sc.h$r, Bsize=Bsize, theta0=theta0.vec[j], theta1=theta1.vec[i], mat=mat.h,
+                                           power=power, alpha=alpha, pat.cols=pat.cols.single, prob.vec=prob.vec, prob.vec.p0=prob.vec.p0, blank.mat=blank.mat, zero.mat=zero.mat)
+        k <- k+1
+      }
+    }
+  } # if no feasible designs found, do nothing and let loop end.
+  return(h.results)
+}
