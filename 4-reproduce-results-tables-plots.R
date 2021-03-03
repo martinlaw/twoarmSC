@@ -392,7 +392,7 @@ quantile(minN.block8, 0.75)
 
 # Plot thetaF vs thetaE for all feasible designs: ####
 system.time({
-  n40 <- findSCdes(nmin=20,
+  n40 <- find2armDesigns(nmin=20,
                    nmax=20,
                    pc=0.1,
                    pt=0.4,
@@ -409,7 +409,7 @@ system.time({
 n40.best <- rmDominatedDesigns(df=n40)
 
 system.time({
-  n60 <- findSCdes(nmin=30,
+  n60 <- find2armDesigns(nmin=30,
                    nmax=30,
                    pc=0.1,
                    pt=0.4,

@@ -2,9 +2,9 @@ source("1-reproduce-results-functions-find-designs.R")
 
 ####
 #
-# function: findSCdes
+# function: find2armDesigns
 #
-# findSCdes is used to find stochastically curtailed designs. Arguments:
+# find2armDesigns is used to find stochastically curtailed designs. Arguments:
 #
 # nmin, nmax:   min and max sample size per arm to search over.
 # pc, pt:       anticipated response rates on control and treatment arms.
@@ -42,7 +42,7 @@ source("1-reproduce-results-functions-find-designs.R")
 ####
 
 
-des <- findSCdes(nmin=40,
+des <- find2armDesigns(nmin=40,
                    nmax=48,
                    block.size=8,
                    pc=0.3,
@@ -84,7 +84,7 @@ cores <- detectCores()-2
 registerDoParallel(cores)
 
 results.par <- foreach(i=block4.n, .combine = rbind) %dopar% {
-    findSCdes(nmin=i,
+  find2armDesigns(nmin=i,
               nmax=i,
               block.size=4,
               pc=0.3,
